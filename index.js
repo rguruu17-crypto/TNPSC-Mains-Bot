@@ -955,9 +955,10 @@ async function handleQCABPdfRequest(ctx) {
         `────────────────────────────────────`,
         `🏛️ <b>Standard:</b> Group-1 Mains (${paperCode})`,
         `⚖️ <b>Weightage:</b> ${marks} Marks • ~${marks === 15 ? "250" : "150"} Words`,
-        `📄 <b>Pages:</b> ${marks === 15 ? "3 Pages" : "2 Pages"} (With Official Side Margins)`,
+        `📄 <b>QCAB Allotment:</b> Exactly ${marks === 15 ? "2 ½ Pages" : "1 ½ Pages"}`,
+        `⛔ <b>Official Cutoff:</b> Lined guide stops at ${marks === 15 ? "2 ½" : "1 ½"} pages + Examiner Matrix`,
         `────────────────────────────────────`,
-        `🖨️ <i>Print this booklet, write your answer with a blue/black ballpoint pen within 12 minutes, and upload a photo for Gemini Vision evaluation!</i>`,
+        `🖨️ <i>Print this booklet, write your answer with a ballpoint pen within ${marks === 15 ? "12" : "8"} minutes, and upload a photo for evaluation!</i>`,
       ].join("\n"),
       parse_mode: "HTML",
     });
@@ -975,7 +976,7 @@ async function handleRevisionBibleRequest(ctx) {
     await anim.step("📖 [1/3] Compiling Syllabus & Scheme Capsules...", 35, "Ingesting 8 flagship scheme dossiers...");
     const capsules = getAllCapsules();
 
-    await anim.step("🧠 [2/3] Bundling 12-Rule Model Answers...", 70, "Formatting layout & insertion cheat-sheets...");
+    await anim.step("🧠 [2/3] Bundling 10M (1 ½p) & 15M (2 ½p) Model Answers...", 70, "Formatting official QCAB page limits...");
     const s = sessions.get(ctx.chat.id);
     const items = [];
     if (s && s.question && s.modelAnswer) {
@@ -987,7 +988,7 @@ async function handleRevisionBibleRequest(ctx) {
       });
     }
 
-    await anim.step("🖨️ [3/3] Compiling Printable Revision Booklet...", 95, "Building multi-page master compendium...");
+    await anim.step("🖨️ [3/3] Compiling Master Printable Compendium...", 95, "Enforcing 1 ½ page (10M) & 2 ½ page (15M) boundaries...");
     const pdfPath = await generateRevisionBiblePdf({ items, capsules });
     await anim.delete();
 
@@ -996,10 +997,11 @@ async function handleRevisionBibleRequest(ctx) {
       caption: [
         `📖 <b>TNPSC MAINS ULTIMATE REVISION BIBLE</b>`,
         `────────────────────────────────────`,
-        `🌟 <b>Includes:</b>`,
-        `• 12-Rule Mandatory Answer Writing Architecture`,
-        `• 8 Flagship Tamil Nadu Scheme & Policy Capsules`,
-        `• Model Answer Blueprint with Unique Key Highlights`,
+        `🌟 <b>Official QCAB Layout Standards:</b>`,
+        `• <b>10-Mark Model Answer:</b> Exactly 1 ½ Pages (~150 Words)`,
+        `• <b>15-Mark Model Answer:</b> Exactly 2 ½ Pages (~250 Words)`,
+        `• <b>8 Flagship Scheme Capsules</b> with 12-rule insertion tags`,
+        `• <b>Visual Flowchart / Diagram Box</b> & Examiner Marking Grids`,
         `────────────────────────────────────`,
         `🖨️ <i>Download, print, or review before your test series and exam day!</i>`,
       ].join("\n"),

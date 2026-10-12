@@ -306,6 +306,20 @@ function getPostAnswerKeyboard(unitId = null) {
   return kb;
 }
 
+// Question action keyboard for active questions
+function getQuestionActionKeyboard(unitId = null) {
+  const kb = new InlineKeyboard()
+    .text("🎯 Official 12-Rule Model Answer", "action:model")
+    .row()
+    .text("📓 Save to Notion Topic Page", "action:save")
+    .row();
+  if (unitId) {
+    kb.text("⚡ Next Question in this Unit", `auto:${unitId}`).row();
+  }
+  kb.text("📚 Choose Another Unit", "action:pick_topic");
+  return kb;
+}
+
 // Split large messages for Telegram limits
 function splitMessage(text, max = 3800) {
   const parts = [];
@@ -351,11 +365,15 @@ async function withTyping(ctx, fn) {
 
 async function createProgressAnimator(ctx, title = "TNPSC MAINS AI ENGINE") {
   let msg = null;
+  const SPINNER_FRAMES = ["◐", "◓", "◑", "◒"];
+  let lastEditTime = 0;
+
   try {
     msg = await ctx.reply(
       `⚡ <b>${title}</b>\n━━━━━━━━━━━━━━━━━━━━━━\n⏳ <b>Initializing AI Engine...</b>\n<code>[▱▱▱▱▱▱▱▱▱▱] 0%</code>\n<i>Connecting to Gemini AI Core...</i>`,
       { parse_mode: "HTML" }
     );
+    lastEditTime = Date.now();
   } catch (err) {
     console.warn("Could not create animation message:", err.message);
   }
@@ -365,7 +383,7 @@ async function createProgressAnimator(ctx, title = "TNPSC MAINS AI ENGINE") {
     return "▰".repeat(filled) + "▱".repeat(10 - filled);
   };
 
-  return {
+  const animInstance = {
     async step(text, pct, detail = "") {
       if (!msg) return;
       const bar = renderBar(pct);
@@ -377,14 +395,60 @@ async function createProgressAnimator(ctx, title = "TNPSC MAINS AI ENGINE") {
         detail ? `<i>${detail}</i>` : ``,
       ].filter(Boolean).join("\n");
 
+      // Rate limit protection: enforce minimum 1000ms interval between edits
+      const now = Date.now();
+      if (now - lastEditTime < 1000) {
+        await new Promise((r) => setTimeout(r, 1000 - (now - lastEditTime)));
+      }
+      lastEditTime = Date.now();
+
       try {
         await ctx.api.editMessageText(ctx.chat.id, msg.message_id, content, {
           parse_mode: "HTML",
         });
       } catch (_) {
-        // Safe ignore identical edits or rate limits
+        // Safe ignore duplicate edits / transient network noise
       }
     },
+
+    /**
+     * Executes asyncFn while smoothly updating the animated spinner and cycling subtitles.
+     */
+    async track(asyncFn, { text = "Processing...", basePct = 10, targetPct = 90, details = [] } = {}) {
+      if (!msg) return await asyncFn();
+
+      let currentPct = basePct;
+      let detailIdx = 0;
+      let frameIdx = 0;
+      let isDone = false;
+
+      const initialDetail = details.length ? details[0] : "";
+      await this.step(`${SPINNER_FRAMES[0]} ${text}`, currentPct, initialDetail);
+
+      const timer = setInterval(async () => {
+        if (isDone) return;
+        frameIdx = (frameIdx + 1) % SPINNER_FRAMES.length;
+        if (currentPct < targetPct - 3) {
+          currentPct += Math.min(4, Math.max(1, Math.round((targetPct - currentPct) / 5)));
+        }
+        detailIdx = (detailIdx + 1) % (details.length || 1);
+        const currentDetail = details.length ? details[detailIdx] : "";
+        await this.step(`${SPINNER_FRAMES[frameIdx]} ${text}`, currentPct, currentDetail);
+      }, 1250);
+
+      try {
+        const result = await asyncFn();
+        isDone = true;
+        clearInterval(timer);
+        await this.step(`✅ ${text}`, targetPct, details.length ? details[details.length - 1] : "");
+        return result;
+      } catch (err) {
+        isDone = true;
+        clearInterval(timer);
+        throw err;
+      }
+    },
+
     async delete() {
       if (!msg) return;
       try {
@@ -392,6 +456,8 @@ async function createProgressAnimator(ctx, title = "TNPSC MAINS AI ENGINE") {
       } catch (_) {}
     },
   };
+
+  return animInstance;
 }
 
 function formatModernQuestionCard({ question, marks, words, topic, unitTitle, isPYQ = false, questionNumber = 1 }) {
@@ -412,6 +478,20 @@ function formatModernQuestionCard({ question, marks, words, topic, unitTitle, is
     `<b>${cleanQ}</b>`,
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
     `⚡ <i>Official Tamil Nadu Career Services 12-Rule Model Answer below:</i>`,
+  ].join("\n");
+}
+
+function formatModernModelAnswerCard(modelAnswer, { topic, questionNumber = 1, marks = 15 }) {
+  return [
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  🎯 <b>OFFICIAL 12-RULE MODEL ANSWER</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `📌 <b>Continuity:</b> <code>Question - ${questionNumber}</code> • <code>${marks} Marks Standard</code>`,
+    `🎯 <b>Target Topic:</b> <i>${topic}</i>`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    ``,
+    modelAnswer,
   ].join("\n");
 }
 
@@ -470,6 +550,24 @@ function formatModernEvaluationCard({ marks, evaluation, submissionType = "Text 
   ].filter(Boolean).join("\n");
 }
 
+function formatSyllabusProgressHTML(status) {
+  const current = (status?.currentTopicIndex || 0) + 1;
+  const total = status?.totalTopics || 85;
+  const pct = Math.round((current / total) * 100);
+  const filled = Math.min(10, Math.max(0, Math.round((pct / 100) * 10)));
+  const bar = "▰".repeat(filled) + "▱".repeat(10 - filled);
+
+  return [
+    `╭────────────────────────────────────────╮`,
+    `│  📈 <b>TNPSC SYLLABUS ROTATION METER</b>   │`,
+    `╰────────────────────────────────────────╯`,
+    `• <b>Coverage Progress:</b> <code>[${bar}] ${pct}%</code>`,
+    `• <b>Current Step:</b> Topic <b>${current}</b> of <b>${total}</b> in Mains Syllabus`,
+    `• <b>Daily Schedule:</b> Every morning at <b>09:00 AM IST</b>`,
+    `• <b>Rotation Jump:</b> Automatic daily leap across GS I ➔ GS II ➔ GS III`,
+  ].join("\n");
+}
+
 // ─────────────────────────────────────────────────────────────
 // CORE ACTION HANDLERS (ANIMATED Q&A GENERATION + NOTION)
 // ─────────────────────────────────────────────────────────────
@@ -479,32 +577,64 @@ async function handleAutoGenerateQA(ctx, topic, marks = 15, unitId = null, isPYQ
   const anim = await createProgressAnimator(ctx, isPYQ ? "TNPSC PYQ GENERATOR" : "TNPSC Q&A GENERATOR");
 
   try {
-    await anim.step("🔍 [1/3] Scanning Syllabus & PYQ Vault...", 25, `Analyzing "${topic}"...`);
-
-    const q = isPYQ
-      ? await llm.generatePYQ(topic, marks)
-      : await llm.generateQuestion(topic, marks);
+    const q = await anim.track(
+      () => isPYQ ? llm.generatePYQ(topic, marks) : llm.generateQuestion(topic, marks),
+      {
+        text: isPYQ ? "[1/3] Pulling Authentic TNPSC Mains PYQ..." : "[1/3] Scanning Syllabus & Generating Question...",
+        basePct: 15,
+        targetPct: 40,
+        details: [
+          `Querying syllabus database for "${topic.slice(0, 35)}..."`,
+          "Aligning directive with official Group-1 Mains blueprint...",
+          "Validating 15-mark high-yield question parameters...",
+        ],
+      }
+    );
 
     const words = wordsFor(marks);
 
-    await anim.step("🧠 [2/3] Generating 12-Rule Model Answer with Gemini...", 65, "Architecting Current Affairs & Unique Value boxes...");
-
-    const out = await llm.modelAnswer(q, marks, words);
-
-    await anim.step("📓 [3/3] Saving into Notion Topic Hierarchy...", 92, "Applying callout boxes & yellow highlights...");
+    const out = await anim.track(
+      () => llm.modelAnswer(q, marks, words),
+      {
+        text: "[2/3] Architecting 12-Rule Model Answer...",
+        basePct: 42,
+        targetPct: 80,
+        details: [
+          "Framing 4-line Introduction & 🔴 Core Focus box...",
+          "Structuring 5-6 Subheadings with 5-6 numbered points...",
+          "Injecting 💡 Unique Key boxed differentiators...",
+          "Synthesizing Contemporary Current Affairs & Tamil Nadu links...",
+          "Drafting Forward-Looking Conclusion & Way Forward...",
+        ],
+      }
+    );
 
     let notionUrl = null;
     let notionPageId = null;
     let res = null;
     try {
-      res = await saveSession({
-        question: q,
-        marks,
-        words,
-        modelAnswer: out,
-        topic,
-        unitId,
-      });
+      res = await anim.track(
+        () => saveSession({
+          question: q,
+          marks,
+          words,
+          modelAnswer: out,
+          topic,
+          unitId,
+          isPYQ,
+        }),
+        {
+          text: "[3/3] Saving into Notion Topic Hierarchy...",
+          basePct: 82,
+          targetPct: 98,
+          details: [
+            "Resolving Paper & Unit folder hierarchy in Notion...",
+            "Structuring callout boxes & orange warning accents...",
+            "Applying yellow bold text highlights to high-yield facts...",
+            "Verifying sequential Question continuity numbering...",
+          ],
+        }
+      );
       notionUrl = res.url || res.toString();
       notionPageId = res.id;
     } catch (err) {
@@ -540,7 +670,7 @@ async function handleAutoGenerateQA(ctx, topic, marks = 15, unitId = null, isPYQ
     });
     await ctx.reply(qCard, { parse_mode: "HTML" });
 
-    // Part 2: Model Answer + Notion Banner
+    // Part 2: Modern Model Answer + Notion Banner
     let footer = "";
     if (notionUrl) {
       footer = "\n\n" + formatModernNotionSyncBanner({
@@ -550,7 +680,13 @@ async function handleAutoGenerateQA(ctx, topic, marks = 15, unitId = null, isPYQ
       }) + "\n👉 <i>You can now submit your written answer as Text, Photo, or PDF for Gemini evaluation:</i>";
     }
 
-    await reply(ctx, `<b>🎯 MODEL ANSWER (12-RULE ARCHITECTURE):</b>\n\n${out}${footer}`, getPostAnswerKeyboard(unitId));
+    const modelCard = formatModernModelAnswerCard(out, {
+      topic: res?.topicName || topic,
+      questionNumber: res?.questionNumber || 1,
+      marks,
+    });
+
+    await reply(ctx, modelCard + footer, getPostAnswerKeyboard(unitId));
   } catch (err) {
     await anim.delete();
     console.error("handleAutoGenerateQA error:", err);
@@ -568,31 +704,51 @@ async function handleModelAnswer(ctx) {
   }
   if (s.modelAnswer) {
     let footer = s.notionUrl ? `\n\n🔗 <a href="${s.notionUrl}">Open in Notion Unit Page</a>` : "";
-    return reply(ctx, `<b>🎯 Model Answer (12-Rule Format):</b>\n\n${s.modelAnswer}${footer}`, getPostAnswerKeyboard(s.unitId));
+    const modelCard = formatModernModelAnswerCard(s.modelAnswer, { topic: s.topic, questionNumber: 1, marks: s.marks });
+    return reply(ctx, modelCard + footer, getPostAnswerKeyboard(s.unitId));
   }
 
   const anim = await createProgressAnimator(ctx, "12-RULE MODEL ANSWER ARCHITECT");
   try {
-    await anim.step("🧠 [1/2] Drafting Model Answer with Gemini AI...", 50, "Generating Current Affairs callout & unique key boxes...");
-    const out = await llm.modelAnswer(s.question, s.marks, s.words);
+    const out = await anim.track(
+      () => llm.modelAnswer(s.question, s.marks, s.words),
+      {
+        text: "[1/2] Drafting 12-Rule Model Answer...",
+        basePct: 20,
+        targetPct: 75,
+        details: [
+          "Framing 4-line Introduction & 🔴 Core Focus box...",
+          "Structuring 5-6 Subheadings with 5-6 points...",
+          "Injecting 💡 Unique Key differentiators...",
+          "Polishing Current Affairs integration & Way Forward...",
+        ],
+      }
+    );
     s.modelAnswer = out;
 
-    await anim.step("📓 [2/2] Auto-saving Model Answer to Notion...", 90, "Structuring page blocks...");
     let notionUrl = s.notionUrl;
-    try {
-      if (!s.notionPageId) {
-        const res = await saveSession(s);
-        notionUrl = res.url || res.toString();
-        s.notionUrl = notionUrl;
-        s.notionPageId = res.id;
-      }
-    } catch (err) {
-      console.error("Auto-save to Notion error:", err);
+    if (!s.notionPageId) {
+      const res = await anim.track(
+        () => saveSession(s),
+        {
+          text: "[2/2] Auto-saving Model Answer to Notion...",
+          basePct: 78,
+          targetPct: 98,
+          details: [
+            "Writing formatted blocks to Notion page...",
+            "Applying yellow bold text highlights...",
+          ],
+        }
+      );
+      notionUrl = res.url || res.toString();
+      s.notionUrl = notionUrl;
+      s.notionPageId = res.id;
     }
 
     await anim.delete();
     let footer = notionUrl ? `\n\n` + formatModernNotionSyncBanner({ topic: s.topic, notionUrl, questionNumber: 1 }) : "";
-    await reply(ctx, `<b>🎯 MODEL ANSWER (12-RULE FORMAT):</b>\n\n${out}${footer}`, getPostAnswerKeyboard(s.unitId));
+    const modelCard = formatModernModelAnswerCard(out, { topic: s.topic, questionNumber: 1, marks: s.marks });
+    await reply(ctx, modelCard + footer, getPostAnswerKeyboard(s.unitId));
   } catch (err) {
     await anim.delete();
     await ctx.reply(`⚠️ Error: ${err.message}`);
@@ -616,13 +772,24 @@ async function handleSaveToNotion(ctx) {
 
   const anim = await createProgressAnimator(ctx, "NOTION SYNC ENGINE");
   try {
-    await anim.step("📓 [1/2] Resolving Notion Hierarchy...", 50, "Matching Unit & Topic page...");
-    const res = await saveSession(s);
+    const res = await anim.track(
+      () => saveSession(s),
+      {
+        text: "Synchronizing into Notion Topic Hierarchy...",
+        basePct: 20,
+        targetPct: 95,
+        details: [
+          "Resolving Paper & Unit folder in Notion...",
+          "Rendering orange warning and callout boxes...",
+          "Writing yellow bold highlighted points...",
+          "Securing page continuity numbering...",
+        ],
+      }
+    );
     const url = res.url || res.toString();
     s.notionUrl = url;
     s.notionPageId = res.id;
 
-    await anim.step("🎨 [2/2] Writing Formatted Blocks...", 95, "Rendering yellow highlights & callout boxes...");
     await anim.delete();
 
     await ctx.reply(formatModernNotionSyncBanner({ topic: res?.topicName || s.topic, notionUrl: url, questionNumber: res?.questionNumber || 1 }), {
@@ -654,10 +821,15 @@ function registerBotHandlers(bot) {
       reply_markup: { remove_keyboard: true },
     });
 
+    const status = getSchedulerStatus();
+    const syllabusMeter = formatSyllabusProgressHTML(status);
+
     const welcomeText = [
       healthText,
       "",
       pipelineText,
+      "",
+      syllabusMeter,
       "",
       "────────────────────────────────────",
       "Practice official 15-mark and 10-mark answers adhering strictly to the <b>Tamil Nadu Career Services 12-Rule Format</b>:",
@@ -705,6 +877,24 @@ bot.command("current", (ctx) => {
 
 bot.command("model", handleModelAnswer);
 bot.command("save", handleSaveToNotion);
+
+// /pyq command - Instant official PYQ + 12-rule model answer
+bot.command(["pyq", "mains_pyq"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  const s = sessions.get(ctx.chat.id);
+  const item = getRandomTopic(null, s?.unitId ? findUnitById(s.unitId)?.unit.filterKey : null);
+  const fullTopic = s?.topic || `${item.paper} - ${item.unit}: ${item.topic}`;
+  await handleAutoGenerateQA(ctx, fullTopic, 15, s?.unitId || null, true);
+});
+
+// /quick command - Instant practice question
+bot.command(["quick", "q"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  const s = sessions.get(ctx.chat.id);
+  const item = getRandomTopic(null, s?.unitId ? findUnitById(s.unitId)?.unit.filterKey : null);
+  const fullTopic = s?.topic || `${item.paper} - ${item.unit}: ${item.topic}`;
+  await handleAutoGenerateQA(ctx, fullTopic, 15, s?.unitId || null, false);
+});
 
 bot.command("set", async (ctx) => {
   const m = ctx.match.trim().match(/^(\d+)\s+([\s\S]+)$/);
@@ -1202,13 +1392,15 @@ bot.command(["status", "scheduler", "health"], async (ctx) => {
   const isSubscribed = (status.subscribedChats || []).includes(ctx.chat.id);
   const healthText = formatHealthMeterHTML(false);
   const pipelineText = formatPipelineHTML(status.pipeline);
+  const syllabusMeter = formatSyllabusProgressHTML(status);
 
   const text = [
     healthText,
     ``,
     pipelineText,
     ``,
-    `🔄 <b>Rotation Progress:</b> Topic ${status.currentTopicIndex + 1} of ${status.totalTopics} in Syllabus`,
+    syllabusMeter,
+    ``,
     `📅 <b>Today's Status (${status.todayIST}):</b> ${status.lastRunDate === status.todayIST ? "✅ Completed & Saved to Notion" : "⏳ Scheduled for 09:00 AM IST"}`,
     `🔔 <b>Broadcast Alerts:</b> ${isSubscribed ? "✅ Subscribed to 9:00 AM Broadcast" : "❌ Not Subscribed (tap button below)"}`,
   ].join("\n");
@@ -1383,9 +1575,11 @@ if (bot) {
 
   bot.api.setMyCommands([
     { command: "start", description: "Start practice & view Health Meter" },
+    { command: "pyq", description: "Instant PYQ + 12-rule answer generation" },
+    { command: "quick", description: "Rapid syllabus question generation" },
     { command: "tomorrow", description: "View tomorrow's scheduled topic (9 AM)" },
     { command: "daily", description: "Run/view today's 9 AM PYQ questions" },
-    { command: "status", description: "System Health Meter & pipeline status" },
+    { command: "status", description: "System Health Meter & syllabus progress" },
     { command: "subscribe", description: "Subscribe to 9 AM daily alerts" },
     { command: "menu", description: "Open syllabus navigation" },
     { command: "auto", description: "Auto-generate Q&A and save to Notion" },

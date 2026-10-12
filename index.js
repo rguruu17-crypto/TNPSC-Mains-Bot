@@ -1,6 +1,6 @@
 require("dotenv").config();
 const http = require("http");
-const { Bot, InlineKeyboard } = require("grammy");
+const { Bot, InlineKeyboard, InputFile } = require("grammy");
 const llm = require("./llm");
 const { saveSession, appendEvaluationToSession, UNIT_METADATA } = require("./notion");
 const { ALL_UNITS, generateAndSaveOne } = require("./auto_generate");
@@ -28,6 +28,35 @@ const {
   searchStats,
   formatSearchResultsCard,
 } = require("./tn_stats");
+const {
+  recordSubmission,
+  extractScoreFromEval,
+  formatAnalyticsCard,
+} = require("./analytics_manager");
+const {
+  SCHEME_CAPSULES,
+  getAllCapsules,
+  getCapsuleById,
+  searchCapsules,
+  formatCapsuleCard,
+} = require("./capsule_vault");
+const {
+  generateQCABPdf,
+  generateRevisionBiblePdf,
+} = require("./pdf_generator");
+const {
+  CURATED_EDITORIALS,
+  getCuratedEditorials,
+  getCuratedEditorialById,
+  formatEditorialCard,
+} = require("./editorial_linker");
+const {
+  BUDGET_MACRO,
+  SECTORAL_GSVA,
+  DEPARTMENT_ALLOCATIONS,
+  formatBudgetSummaryCard,
+  formatDepartmentAllocationsCard,
+} = require("./economic_survey_budget");
 
 // Initialize process-level crash prevention guard
 setupProcessGuard();
@@ -279,8 +308,20 @@ function getPapersInlineKeyboard() {
     .text("📈 General Studies III (Paper IV)", "paper:GS3")
     .row();
 
-  kb.text("⏱️ 12-Min Real-Time Mock Exam", "action:start_mock_exam")
-    .text("🎯 TN Stats & Schemes Bank", "action:tn_stats")
+  kb.text("⏱️ 12-Min Mock Exam", "action:start_mock_exam")
+    .text("📊 Mastery Radar", "action:analytics")
+    .row();
+
+  kb.text("🌟 Scheme Capsules", "action:capsule_menu")
+    .text("📑 QCAB Answer Booklet", "action:qcab_pdf")
+    .row();
+
+  kb.text("📰 Editorial Linker", "action:editorial_menu")
+    .text("💰 Budget & Survey", "action:budget_menu")
+    .row();
+
+  kb.text("📖 Revision Bible PDF", "action:revision_bible")
+    .text("🎯 TN Stats Bank", "action:tn_stats")
     .row();
 
   kb.text("⚡ Auto-Generate for All 9 Units (GS I, II & III)", "action:auto_all_papers")
@@ -308,6 +349,50 @@ function getStatsCategoriesKeyboard() {
   }
   kb.text("⬅️ Back to Main Menu", "action:pick_topic");
   return kb;
+}
+
+// Tamil Nadu Scheme Capsules Keyboard
+function getCapsulesKeyboard() {
+  const capsules = getAllCapsules();
+  const kb = new InlineKeyboard();
+  for (let i = 0; i < capsules.length; i += 2) {
+    const c1 = capsules[i];
+    const c2 = capsules[i + 1];
+    if (c2) {
+      kb.text(c1.title.split(" ")[0] + " " + (c1.title.split(" ")[1] || ""), `capsule:view:${c1.id}`)
+        .text(c2.title.split(" ")[0] + " " + (c2.title.split(" ")[1] || ""), `capsule:view:${c2.id}`)
+        .row();
+    } else {
+      kb.text(c1.title, `capsule:view:${c1.id}`).row();
+    }
+  }
+  kb.text("📖 Download Revision Bible PDF", "action:revision_bible").row();
+  kb.text("⬅️ Back to Main Menu", "action:pick_topic");
+  return kb;
+}
+
+// Daily Editorial Linker Keyboard
+function getEditorialsKeyboard() {
+  const list = getCuratedEditorials();
+  const kb = new InlineKeyboard();
+  list.forEach((e) => {
+    kb.text(`📰 ${e.theme.slice(0, 34)}...`, `editorial:view:${e.id}`).row();
+  });
+  kb.text("✍️ Enter Custom Editorial Topic", "action:custom_editorial").row();
+  kb.text("⬅️ Back to Main Menu", "action:pick_topic");
+  return kb;
+}
+
+// Economic Survey & Budget Navigation Keyboard
+function getBudgetMenuKeyboard() {
+  return new InlineKeyboard()
+    .text("📊 Macro Fiscal Indicators", "budget:macro")
+    .text("🏛️ Departmental Outlays", "budget:depts")
+    .row()
+    .text("🌾 GSVA Sectoral Share", "budget:sectors")
+    .text("🎯 High-Yield TN Stats", "action:tn_stats")
+    .row()
+    .text("⬅️ Back to Main Menu", "action:pick_topic");
 }
 
 // API Credentials & Health Settings Keyboard
@@ -353,7 +438,10 @@ function getTopicPromptKeyboard(unitId) {
 function getPostAnswerKeyboard(unitId = null) {
   const kb = new InlineKeyboard()
     .text("🗺️ Answer Diagram", "action:diagram")
-    .text("🎯 TN Stats Bank", "action:tn_stats")
+    .text("📑 Printable QCAB PDF", "action:qcab_pdf")
+    .row()
+    .text("📊 Mastery Radar", "action:analytics")
+    .text("🌟 Scheme Capsule", "action:capsule_menu")
     .row();
   if (unitId) {
     kb.text("⚡ Next Auto Q&A for this Unit", `auto:${unitId}`).row();
@@ -366,10 +454,13 @@ function getPostAnswerKeyboard(unitId = null) {
 // Question action keyboard for active questions
 function getQuestionActionKeyboard(unitId = null) {
   const kb = new InlineKeyboard()
-    .text("🎯 Official 12-Rule Model Answer", "action:model")
+    .text("🎯 12-Rule Model Answer", "action:model")
     .text("🗺️ Answer Diagram", "action:diagram")
     .row()
     .text("⏱️ 12-Min Mock Exam", "action:start_mock_exam")
+    .text("📑 Printable QCAB PDF", "action:qcab_pdf")
+    .row()
+    .text("🌟 Scheme Capsule", "action:capsule_menu")
     .text("📓 Save to Notion", "action:save")
     .row();
   if (unitId) {
@@ -676,7 +767,9 @@ function formatMockTimerCard(mock) {
 
 function getMockTimerKeyboard() {
   return new InlineKeyboard()
-    .text("⏹️ Submit Answer Early", "mock:submit_early")
+    .text("📑 Printable QCAB PDF", "action:qcab_pdf")
+    .text("⏹️ Submit Early", "mock:submit_early")
+    .row()
     .text("❌ Abort Exam", "mock:abort");
 }
 
@@ -832,6 +925,91 @@ async function startMockExam(ctx, customTopic = null, unitId = null, existingQue
       console.warn("Mock timer update warning:", err.message);
     }
   }, 30000);
+}
+
+// Handler: Generate and deliver authentic TNPSC QCAB Answer Booklet PDF
+async function handleQCABPdfRequest(ctx) {
+  const s = sessions.get(ctx.chat.id);
+  const question = s?.question || "Examine the role of the Justice Party in laying the foundation of social justice and affirmative action in Tamil Nadu.";
+  const marks = s?.marks || 15;
+  const topic = s?.topic || "Social Justice in Tamil Nadu";
+  const found = s?.unitId ? findUnitById(s.unitId) : null;
+  const paperCode = found ? found.paper.paperCode : "Paper II";
+
+  const anim = await createProgressAnimator(ctx, "TNPSC QCAB COMPILER");
+  try {
+    await anim.step("📑 [1/2] Drafting Official Examination Booklet...", 50, "Formatting margins, barcode box & guidelines...");
+    const pdfPath = await generateQCABPdf({
+      question,
+      marks,
+      topic,
+      paperCode,
+    });
+    await anim.step("🖨️ [2/2] Exporting High-Resolution Printable PDF...", 90, "Finalizing page coordinates...");
+    await anim.delete();
+
+    const fileName = `TNPSC_QCAB_${marks}M_${Date.now().toString().slice(-4)}.pdf`;
+    await ctx.replyWithDocument(new InputFile(pdfPath, fileName), {
+      caption: [
+        `📑 <b>OFFICIAL TNPSC QCAB ANSWER BOOKLET</b>`,
+        `────────────────────────────────────`,
+        `🏛️ <b>Standard:</b> Group-1 Mains (${paperCode})`,
+        `⚖️ <b>Weightage:</b> ${marks} Marks • ~${marks === 15 ? "250" : "150"} Words`,
+        `📄 <b>Pages:</b> ${marks === 15 ? "3 Pages" : "2 Pages"} (With Official Side Margins)`,
+        `────────────────────────────────────`,
+        `🖨️ <i>Print this booklet, write your answer with a blue/black ballpoint pen within 12 minutes, and upload a photo for Gemini Vision evaluation!</i>`,
+      ].join("\n"),
+      parse_mode: "HTML",
+    });
+  } catch (err) {
+    await anim.delete();
+    console.error("QCAB generation error:", err);
+    await ctx.reply(`⚠️ QCAB generation error: ${err.message}`);
+  }
+}
+
+// Handler: Compile and deliver comprehensive Revision Bible PDF
+async function handleRevisionBibleRequest(ctx) {
+  const anim = await createProgressAnimator(ctx, "REVISION BIBLE COMPILER");
+  try {
+    await anim.step("📖 [1/3] Compiling Syllabus & Scheme Capsules...", 35, "Ingesting 8 flagship scheme dossiers...");
+    const capsules = getAllCapsules();
+
+    await anim.step("🧠 [2/3] Bundling 12-Rule Model Answers...", 70, "Formatting layout & insertion cheat-sheets...");
+    const s = sessions.get(ctx.chat.id);
+    const items = [];
+    if (s && s.question && s.modelAnswer) {
+      items.push({
+        question: s.question,
+        marks: s.marks,
+        topic: s.topic,
+        modelAnswer: s.modelAnswer,
+      });
+    }
+
+    await anim.step("🖨️ [3/3] Compiling Printable Revision Booklet...", 95, "Building multi-page master compendium...");
+    const pdfPath = await generateRevisionBiblePdf({ items, capsules });
+    await anim.delete();
+
+    const fileName = `TNPSC_Mains_Revision_Bible_${Date.now().toString().slice(-4)}.pdf`;
+    await ctx.replyWithDocument(new InputFile(pdfPath, fileName), {
+      caption: [
+        `📖 <b>TNPSC MAINS ULTIMATE REVISION BIBLE</b>`,
+        `────────────────────────────────────`,
+        `🌟 <b>Includes:</b>`,
+        `• 12-Rule Mandatory Answer Writing Architecture`,
+        `• 8 Flagship Tamil Nadu Scheme & Policy Capsules`,
+        `• Model Answer Blueprint with Unique Key Highlights`,
+        `────────────────────────────────────`,
+        `🖨️ <i>Download, print, or review before your test series and exam day!</i>`,
+      ].join("\n"),
+      parse_mode: "HTML",
+    });
+  } catch (err) {
+    await anim.delete();
+    console.error("Bible generation error:", err);
+    await ctx.reply(`⚠️ Revision Bible compiler error: ${err.message}`);
+  }
 }
 
 function formatSyllabusProgressHTML(status) {
@@ -1265,6 +1443,128 @@ bot.command(["diagram", "flowchart", "mindmap"], async (ctx) => {
   }
 });
 
+// /analytics, /radar, /scorecard - Aspirant performance & syllabus mastery radar
+bot.command(["analytics", "radar", "scorecard"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  const card = formatAnalyticsCard(ctx.chat.id);
+  await ctx.reply(card, {
+    parse_mode: "HTML",
+    reply_markup: new InlineKeyboard()
+      .text("⏱️ Write 12-Min Mock", "action:start_mock_exam")
+      .text("📑 Printable QCAB PDF", "action:qcab_pdf")
+      .row()
+      .text("📚 Syllabus Menu", "action:pick_topic"),
+  });
+});
+
+// /capsule, /capsules, /vault - Tamil Nadu scheme and policy capsule vault
+bot.command(["capsule", "capsules", "vault"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  const query = ctx.match ? ctx.match.trim() : "";
+  if (!query) {
+    await ctx.reply(
+      `🌟 <b>TAMIL NADU SCHEME & POLICY CAPSULE VAULT</b>\n\n` +
+      `Essential flagship schemes curated with exact 12-rule Mains answer insertion points (Intro box, Unique Key box, Way Forward).\n\n` +
+      `Select a scheme below or search with <code>/capsule &lt;scheme-name&gt;</code>:`,
+      {
+        parse_mode: "HTML",
+        reply_markup: getCapsulesKeyboard(),
+      }
+    );
+  } else {
+    const results = searchCapsules(query);
+    if (results.length === 1) {
+      await ctx.reply(formatCapsuleCard(results[0]), {
+        parse_mode: "HTML",
+        reply_markup: getCapsulesKeyboard(),
+      });
+    } else if (results.length > 1) {
+      const kb = new InlineKeyboard();
+      results.slice(0, 6).forEach((c) => {
+        kb.text(`🌟 ${c.title.slice(0, 32)}...`, `capsule:view:${c.id}`).row();
+      });
+      kb.text("⬅️ Back to Capsules", "action:capsule_menu");
+      await ctx.reply(
+        `🔍 <b>Found ${results.length} Matching Policy Capsules:</b>\nSelect one to view the detailed 12-rule insertion guide:`,
+        { parse_mode: "HTML", reply_markup: kb }
+      );
+    } else {
+      await ctx.reply(`⚠️ No scheme found matching "<code>${query}</code>". Showing all capsules:`, {
+        parse_mode: "HTML",
+        reply_markup: getCapsulesKeyboard(),
+      });
+    }
+  }
+});
+
+// /qcab, /booklet - Official TNPSC QCAB Printable PDF Generator
+bot.command(["qcab", "booklet"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  await handleQCABPdfRequest(ctx);
+});
+
+// /bible, /revision - Revision Bible PDF Compiler
+bot.command(["bible", "revision"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  await handleRevisionBibleRequest(ctx);
+});
+
+// /editorial, /editorials - Daily Editorial Syllabus Linker
+bot.command(["editorial", "editorials"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  const query = ctx.match ? ctx.match.trim() : "";
+  if (!query) {
+    await ctx.reply(
+      `📰 <b>DAILY EDITORIAL SYLLABUS LINKER</b>\n\n` +
+      `Link current affairs & editorials from <i>The Hindu</i>, <i>Dinamani</i>, and <i>Frontline</i> to TNPSC Group-1 Mains syllabus topics.\n\n` +
+      `Select a curated contemporary editorial below, or type <code>/editorial &lt;headline or topic&gt;</code>:`,
+      {
+        parse_mode: "HTML",
+        reply_markup: getEditorialsKeyboard(),
+      }
+    );
+  } else {
+    const anim = await createProgressAnimator(ctx, "EDITORIAL SYLLABUS LINKER");
+    try {
+      const output = await anim.track(
+        () => llm.linkEditorial(query),
+        {
+          text: "[1/2] Mapping Editorial to Syllabus Hierarchy...",
+          basePct: 35,
+          targetPct: 90,
+          details: [
+            "Parsing constitutional, economic & governance dimensions...",
+            "Formulating high-caliber 15-mark Mains question...",
+            "Synthesizing Tamil Nadu context and SC precedent anchors...",
+          ],
+        }
+      );
+      await anim.delete();
+      const card = formatEditorialCard(output, query);
+      await reply(ctx, card, new InlineKeyboard()
+        .text("⏱️ Practice as 12-Min Mock", "action:start_mock_exam")
+        .text("📑 QCAB PDF", "action:qcab_pdf")
+        .row()
+        .text("📰 More Editorials", "action:editorial_menu")
+        .text("📚 Main Menu", "action:pick_topic")
+      );
+    } catch (err) {
+      await anim.delete();
+      console.error("Editorial analysis error:", err);
+      await ctx.reply(`⚠️ Editorial analysis error: ${err.message}`);
+    }
+  }
+});
+
+// /budget, /survey - Economic Survey & Budget 2024-25 Stats Injector
+bot.command(["budget", "survey"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  await ctx.reply(formatBudgetSummaryCard(), {
+    parse_mode: "HTML",
+    reply_markup: getBudgetMenuKeyboard(),
+  });
+});
+
 // ─────────────────────────────────────────────────────────────
 // INLINE CALLBACK QUERY HANDLERS (THE 3-TIER FLOW)
 // ─────────────────────────────────────────────────────────────
@@ -1576,6 +1876,185 @@ bot.callbackQuery(/^stats:cat:(.+)$/, async (ctx) => {
   });
 });
 
+// Aspirant Analytics / Mastery Radar
+bot.callbackQuery("action:analytics", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const card = formatAnalyticsCard(ctx.chat.id);
+  await ctx.reply(card, {
+    parse_mode: "HTML",
+    reply_markup: new InlineKeyboard()
+      .text("⏱️ Write 12-Min Mock", "action:start_mock_exam")
+      .text("📑 Printable QCAB PDF", "action:qcab_pdf")
+      .row()
+      .text("📚 Syllabus Menu", "action:pick_topic"),
+  });
+});
+
+// Tamil Nadu Scheme Capsules Menu
+bot.callbackQuery("action:capsule_menu", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  await ctx.reply(
+    `🌟 <b>TAMIL NADU SCHEME & POLICY CAPSULE VAULT</b>\n\n` +
+    `Select a flagship scheme below to view exact 12-rule Mains insertion guidance:`,
+    {
+      parse_mode: "HTML",
+      reply_markup: getCapsulesKeyboard(),
+    }
+  );
+});
+
+// View specific Scheme Capsule
+bot.callbackQuery(/^capsule:view:(.+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const id = ctx.match[1];
+  const c = getCapsuleById(id);
+  if (!c) return ctx.reply("⚠️ Capsule not found.");
+
+  sessions.set(ctx.chat.id, {
+    question: `Examine the socio-economic impact and governance innovations of the ${c.title} in Tamil Nadu.`,
+    marks: 15,
+    words: 250,
+    topic: c.title,
+  });
+
+  await ctx.reply(formatCapsuleCard(c), {
+    parse_mode: "HTML",
+    reply_markup: new InlineKeyboard()
+      .text("⏱️ Write 12-Min Mock", "action:start_mock_exam")
+      .text("📑 Printable QCAB PDF", "action:qcab_pdf")
+      .row()
+      .text("🗺️ Answer Diagram", "action:diagram")
+      .text("🌟 More Capsules", "action:capsule_menu")
+      .row()
+      .text("📚 Main Menu", "action:pick_topic"),
+  });
+});
+
+// QCAB Answer Booklet PDF Download
+bot.callbackQuery("action:qcab_pdf", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  await handleQCABPdfRequest(ctx);
+});
+
+// Revision Bible PDF Compilation Download
+bot.callbackQuery("action:revision_bible", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  await handleRevisionBibleRequest(ctx);
+});
+
+// Editorial Linker Menu
+bot.callbackQuery("action:editorial_menu", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  await ctx.reply(
+    `📰 <b>DAILY EDITORIAL SYLLABUS LINKER</b>\n\n` +
+    `Select a high-yield contemporary editorial below to map into TNPSC Mains syllabus and formulate 15M questions:`,
+    {
+      parse_mode: "HTML",
+      reply_markup: getEditorialsKeyboard(),
+    }
+  );
+});
+
+// View Curated Editorial
+bot.callbackQuery(/^editorial:view:(.+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const id = ctx.match[1];
+  const e = getCuratedEditorialById(id);
+  if (!e) return ctx.reply("⚠️ Editorial not found.");
+
+  const anim = await createProgressAnimator(ctx, "EDITORIAL SYLLABUS LINKER");
+  try {
+    const prompt = `${e.title}\nTheme: ${e.theme}\nPaper: ${e.paper}\nSnippet: ${e.snippet}`;
+    const output = await anim.track(
+      () => llm.linkEditorial(prompt),
+      {
+        text: "[1/2] Mapping to Syllabus & Formulating Question...",
+        basePct: 35,
+        targetPct: 90,
+        details: [
+          "Parsing constitutional, economic & governance dimensions...",
+          "Formulating official 15-mark directive question...",
+          "Synthesizing state policy anchors and SC precedents...",
+        ],
+      }
+    );
+    await anim.delete();
+
+    sessions.set(ctx.chat.id, {
+      question: e.title,
+      marks: 15,
+      words: 250,
+      topic: e.theme,
+    });
+
+    const card = formatEditorialCard(output, e.title);
+    await reply(ctx, card, new InlineKeyboard()
+      .text("⏱️ Practice as 12-Min Mock", "action:start_mock_exam")
+      .text("📑 QCAB PDF", "action:qcab_pdf")
+      .row()
+      .text("📰 More Editorials", "action:editorial_menu")
+      .text("📚 Main Menu", "action:pick_topic")
+    );
+  } catch (err) {
+    await anim.delete();
+    console.error("Editorial analysis error:", err);
+    await ctx.reply(`⚠️ Editorial analysis error: ${err.message}`);
+  }
+});
+
+// Custom Editorial input prompt
+bot.callbackQuery("action:custom_editorial", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  userState.set(ctx.chat.id, { state: "WAITING_FOR_EDITORIAL" });
+  await ctx.reply(
+    `✍️ <b>Enter Custom Editorial Headline or Topic:</b>\n\n` +
+    `Type or paste the headline, op-ed topic, or news issue below (e.g. <i>"One Nation One Election implications on Federalism"</i>):`,
+    {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard().text("❌ Cancel", "action:editorial_menu"),
+    }
+  );
+});
+
+// Economic Survey & Budget Menu
+bot.callbackQuery("action:budget_menu", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  await ctx.reply(formatBudgetSummaryCard(), {
+    parse_mode: "HTML",
+    reply_markup: getBudgetMenuKeyboard(),
+  });
+});
+
+bot.callbackQuery("budget:macro", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  await ctx.reply(formatBudgetSummaryCard(), {
+    parse_mode: "HTML",
+    reply_markup: getBudgetMenuKeyboard(),
+  });
+});
+
+bot.callbackQuery("budget:depts", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  await ctx.reply(formatDepartmentAllocationsCard(), {
+    parse_mode: "HTML",
+    reply_markup: getBudgetMenuKeyboard(),
+  });
+});
+
+bot.callbackQuery("budget:sectors", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const lines = [
+    `🌾 <b>TAMIL NADU GSVA SECTORAL DYNAMICS</b>`,
+    `────────────────────────────────────────`,
+    SECTORAL_GSVA.map((s, i) => `<b>${i + 1}. ${s.sector}:</b>\n• Share: <code>${s.share}</code>\n• <i>${s.highlights}</i>\n`).join("\n"),
+    `💡 <i>Secondary Sector contributes 37.4% (vs ~29% India average), reflecting Tamil Nadu's industrial dominance!</i>`,
+  ];
+  await ctx.reply(lines.join("\n"), {
+    parse_mode: "HTML",
+    reply_markup: getBudgetMenuKeyboard(),
+  });
+});
+
 // ─────────────────────────────────────────────────────────────
 // MESSAGE HANDLERS (USER TYPES TOPIC OR SUBMITS ANSWER)
 // ─────────────────────────────────────────────────────────────
@@ -1591,6 +2070,38 @@ bot.on("message:text", async (ctx) => {
     userState.delete(ctx.chat.id);
     const fullTopic = `${st.paperTitle} - ${st.unitName}: ${enteredTopic}`;
     return handleAutoGenerateQA(ctx, fullTopic, 15, st.unitId, false);
+  }
+
+  // 1A. Handle Editorial Input
+  if (st && st.state === "WAITING_FOR_EDITORIAL") {
+    const text = ctx.message.text.trim();
+    userState.delete(ctx.chat.id);
+    const anim = await createProgressAnimator(ctx, "EDITORIAL SYLLABUS LINKER");
+    try {
+      const output = await anim.track(() => llm.linkEditorial(text), {
+        text: "[1/2] Analyzing Editorial & Mapping to Syllabus...",
+        basePct: 35,
+        targetPct: 90,
+        details: [
+          "Parsing constitutional & economic dimensions...",
+          "Formulating official 15-mark Mains question...",
+          "Synthesizing state policy anchors and SC precedents...",
+        ],
+      });
+      await anim.delete();
+      sessions.set(ctx.chat.id, { question: text, marks: 15, words: 250, topic: text });
+      const card = formatEditorialCard(output, text);
+      return reply(ctx, card, new InlineKeyboard()
+        .text("⏱️ Practice as 12-Min Mock", "action:start_mock_exam")
+        .text("📑 QCAB PDF", "action:qcab_pdf")
+        .row()
+        .text("📰 More Editorials", "action:editorial_menu")
+        .text("📚 Main Menu", "action:pick_topic")
+      );
+    } catch (err) {
+      await anim.delete();
+      return ctx.reply(`⚠️ Editorial analysis error: ${err.message}`);
+    }
   }
 
   // 1B. Handle Gemini API Key update input
@@ -1771,6 +2282,19 @@ bot.on("message:text", async (ctx) => {
     s.answer = ctx.message.text;
     s.evaluation = out;
 
+    try {
+      const numericScore = extractScoreFromEval(out, s.marks);
+      recordSubmission(ctx.chat.id, {
+        marks: s.marks,
+        score: numericScore,
+        unitId: s.unitId,
+        elapsedSeconds: mockTiming ? mockTiming.elapsed : null,
+        submissionType: "Text Answer",
+      });
+    } catch (e) {
+      console.warn("Analytics recording warning:", e.message);
+    }
+
     await anim.step("⚖️ [2/3] Benchmarking against 12 TNPSC Rules...", 70, "Grading intro, subheadings & conclusions...");
 
     // Automatically update or save into Notion
@@ -1825,6 +2349,19 @@ bot.on("message:photo", async (ctx) => {
     });
     s.answer = "(Handwritten photo answer evaluated via Gemini Vision)";
     s.evaluation = out;
+
+    try {
+      const numericScore = extractScoreFromEval(out, s.marks);
+      recordSubmission(ctx.chat.id, {
+        marks: s.marks,
+        score: numericScore,
+        unitId: s.unitId,
+        elapsedSeconds: mockTiming ? mockTiming.elapsed : null,
+        submissionType: "Handwritten Paper (Vision OCR)",
+      });
+    } catch (e) {
+      console.warn("Analytics recording warning:", e.message);
+    }
 
     await anim.step("📓 [3/3] Saving Handwritten Evaluation to Notion...", 95, "Syncing score and detailed breakdown...");
     let notionUrl = s.notionUrl;
@@ -1897,6 +2434,19 @@ bot.on("message:document", async (ctx) => {
       ? `(PDF answer script submitted: ${fileName} - evaluated via Gemini Vision)`
       : `(Document image submitted: ${fileName} - evaluated via Gemini Vision)`;
     s.evaluation = out;
+
+    try {
+      const numericScore = extractScoreFromEval(out, s.marks);
+      recordSubmission(ctx.chat.id, {
+        marks: s.marks,
+        score: numericScore,
+        unitId: s.unitId,
+        elapsedSeconds: mockTiming ? mockTiming.elapsed : null,
+        submissionType: isPdf ? `PDF Document (${fileName})` : "Document Image",
+      });
+    } catch (e) {
+      console.warn("Analytics recording warning:", e.message);
+    }
 
     await anim.step("📓 [3/3] Storing Comprehensive Report in Notion...", 95, "Writing feedback blocks...");
     let notionUrl = s.notionUrl;
@@ -2333,6 +2883,12 @@ if (bot) {
   bot.api.setMyCommands([
     { command: "start", description: "Start practice & view Health Meter" },
     { command: "mock", description: "⏱️ 12-Minute Real-Time Exam Simulator" },
+    { command: "analytics", description: "📊 Aspirant Analytics & Mastery Radar" },
+    { command: "capsule", description: "🌟 TN Scheme & Policy Capsule Vault" },
+    { command: "qcab", description: "📑 Download Printable QCAB Answer Booklet PDF" },
+    { command: "bible", description: "📖 Compile & Download Revision Bible PDF" },
+    { command: "editorial", description: "📰 Daily Editorial Syllabus Linker" },
+    { command: "budget", description: "🎯 TN Economic Survey & Budget 2024-25 Injector" },
     { command: "diagram", description: "🗺️ Visual answer diagram & flowchart" },
     { command: "tnstats", description: "🎯 Tamil Nadu official stats & schemes" },
     { command: "pyq", description: "Instant PYQ + 12-rule answer generation" },
@@ -2345,9 +2901,6 @@ if (bot) {
     { command: "menu", description: "Open syllabus navigation" },
     { command: "auto", description: "Auto-generate Q&A and save to Notion" },
     { command: "model", description: "Get official 12-rule model answer" },
-    { command: "current", description: "View current active question" },
-    { command: "save", description: "Save current session to Notion" },
-    { command: "set", description: "Practice your own custom question" },
   ]).catch(() => {});
 
   bot.start({

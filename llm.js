@@ -1,6 +1,6 @@
 require("dotenv").config();
 const { GoogleGenAI } = require("@google/genai");
-const { MODEL_SYSTEM, EVAL_SYSTEM, QUESTION_SYSTEM, PYQ_SYSTEM, DIAGRAM_SYSTEM } = require("./prompts");
+const { MODEL_SYSTEM, EVAL_SYSTEM, QUESTION_SYSTEM, PYQ_SYSTEM, DIAGRAM_SYSTEM, EDITORIAL_SYSTEM } = require("./prompts");
 
 let ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -103,7 +103,13 @@ const generateDiagram = (questionOrTopic) =>
     `Question or Syllabus Topic: ${questionOrTopic}\nLanguage: English (Generate strictly in English language only. Do NOT use Tamil.)\nGenerate an exam-ready visual flowchart/diagram blueprint.`
   );
 
-module.exports = { generateQuestion, generatePYQ, modelAnswer, generateDiagram, evaluate, updateGeminiKey };
+const linkEditorial = (editorialText) =>
+  ask(
+    EDITORIAL_SYSTEM,
+    `Editorial / News Headline / Contemporary Issue:\n${editorialText}\nLanguage: English (Generate strictly in English language only. Do NOT use Tamil.)\nMap this to TNPSC Mains syllabus and formulate a probable 15-mark question with value addition points.`
+  );
+
+module.exports = { generateQuestion, generatePYQ, modelAnswer, generateDiagram, linkEditorial, evaluate, updateGeminiKey };
 
 if (require.main === module) {
   (async () => {

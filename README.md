@@ -93,6 +93,50 @@ npm run daily
 
 ---
 
+## ☁️ Deploying to Render.com (Step-by-Step Guide)
+
+This bot is fully optimized for **Render.com Web Services** with an integrated HTTP server, health check endpoint (`/health`), and an automatic self-pinger to prevent free-tier spin downs.
+
+### Step 1: Push Repository to GitHub
+Ensure your repository is up to date on GitHub:
+```bash
+git push origin main
+```
+
+### Step 2: Create a Web Service on Render
+1. Go to [Render Dashboard](https://dashboard.render.com).
+2. Click **New +** ➔ **Web Service**.
+3. Select your GitHub repository: `TNPSC-Mains-Bot`.
+4. Configure the settings:
+   - **Name**: `tnpsc-mains-bot` (or any name you choose)
+   - **Language**: `Node`
+   - **Branch**: `main`
+   - **Build Command**: `npm install`
+   - **Start Command**: `npm start`
+   - **Instance Type**: `Free`
+   - **Health Check Path**: `/health`
+
+### Step 3: Add Environment Variables in Render
+In the **Environment Variables** section of your Render Web Service, add the following 4 keys:
+
+| Key | Value / Description |
+| :--- | :--- |
+| `TELEGRAM_BOT_TOKEN` | Your Telegram Bot Token from [@BotFather](https://t.me/BotFather) |
+| `GEMINI_API_KEY` | Your Google AI Studio Gemini API Key |
+| `NOTION_TOKEN` | Your Notion Integration Token (`ntn_...`) |
+| `NOTION_DATABASE_ID` | Your Notion Parent Page ID or Database ID |
+| `GEMINI_MODEL` | *(Optional, default: `gemini-2.5-flash`)* |
+
+### Step 4: Deploy & Verify
+1. Click **Deploy Web Service**.
+2. Once deployed, open your Render public URL (e.g., `https://tnpsc-mains-bot.onrender.com`).
+3. You will see a dark-mode status dashboard showing the bot status, daily 9:00 AM scheduler status, and environment variables verification.
+4. **24/7 Keep-Alive**: When deployed on Render, the bot automatically detects `RENDER_EXTERNAL_URL` and pings itself every 14 minutes so your free tier web service never goes to sleep!
+
+> **⚠️ Note on Telegram Polling:** Telegram allows only **one instance** of a bot to poll updates at a time. When running on Render, make sure to terminate any local terminal running `node index.js` or `supervisor.js` on your computer to prevent `409 Conflict` errors.
+
+---
+
 ## 📜 License
 
 MIT License. Designed for TNPSC Civil Services Aspirants.

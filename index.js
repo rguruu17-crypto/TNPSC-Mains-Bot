@@ -1,4 +1,5 @@
 require("dotenv").config();
+const http = require("http");
 const { Bot, InlineKeyboard } = require("grammy");
 const llm = require("./llm");
 const { saveSession, appendEvaluationToSession, UNIT_METADATA } = require("./notion");
@@ -16,7 +17,29 @@ const {
 // Initialize process-level crash prevention guard
 setupProcessGuard();
 
-const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
+// Environment check for Render.com and local environments
+const REQUIRED_ENV_VARS = ["TELEGRAM_BOT_TOKEN", "GEMINI_API_KEY", "NOTION_TOKEN", "NOTION_DATABASE_ID"];
+const missingVars = REQUIRED_ENV_VARS.filter((k) => !process.env[k] || !process.env[k].trim());
+
+const hasBotToken = Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_TOKEN.trim());
+let bot = null;
+if (hasBotToken) {
+  try {
+    bot = new Bot(process.env.TELEGRAM_BOT_TOKEN.trim());
+  } catch (err) {
+    console.error("Failed to initialize Grammy Bot:", err.message);
+  }
+} else {
+  console.warn("\n=======================================================");
+  console.warn("⚠️  [RENDER SETUP REQUIRED] TELEGRAM_BOT_TOKEN is missing!");
+  console.warn("👉 Please add the following in Render Dashboard -> Environment:");
+  console.warn("   - TELEGRAM_BOT_TOKEN");
+  console.warn("   - GEMINI_API_KEY");
+  console.warn("   - NOTION_TOKEN");
+  console.warn("   - NOTION_DATABASE_ID");
+  console.warn("🌐 HTTP server will remain active on PORT for Render health checks.");
+  console.warn("=======================================================\n");
+}
 
 // Typical TNPSC Mains word limits by marks
 const WORDS_BY_MARKS = { 5: 80, 10: 150, 15: 300, 20: 350 };
@@ -352,11 +375,12 @@ async function handleSaveToNotion(ctx) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// COMMAND HANDLERS
 // ─────────────────────────────────────────────────────────────
-
-// /start: Clears any old bottom keyboard and shows the Papers menu
-bot.command("start", async (ctx) => {
+// TELEGRAM BOT COMMAND & MESSAGE REGISTRATION
+// ─────────────────────────────────────────────────────────────
+function registerBotHandlers(bot) {
+  // /start: Clears any old bottom keyboard and shows the Papers menu
+  bot.command("start", async (ctx) => {
   userState.delete(ctx.chat.id);
   subscribeChat(ctx.chat.id);
   // Remove any previously docked bottom keyboard
@@ -894,26 +918,286 @@ bot.callbackQuery("action:run_daily_now", async (ctx) => {
     await ctx.reply(`⚠️ Error: ${err.message}`);
   }
 });
+} // end registerBotHandlers
 
-bot.catch((err) => console.error("Bot error:", err));
+// ─────────────────────────────────────────────────────────────
+// START TELEGRAM BOT & SCHEDULER (WITH 409 CONFLICT RECOVERY)
+// ─────────────────────────────────────────────────────────────
+if (bot) {
+  registerBotHandlers(bot);
 
-// Set native bot commands in Telegram menu (blue [Menu] pill)
-bot.api.setMyCommands([
-  { command: "start", description: "Start practice & select Paper" },
-  { command: "daily", description: "Run/view daily 9 AM PYQ question" },
-  { command: "status", description: "View schedule & auto-heal status" },
-  { command: "subscribe", description: "Subscribe to 9 AM daily alerts" },
-  { command: "menu", description: "Open syllabus navigation" },
-  { command: "auto", description: "Auto-generate Q&A and save to Notion" },
-  { command: "model", description: "Get official 12-rule model answer" },
-  { command: "current", description: "View current active question" },
-  { command: "save", description: "Save current session to Notion" },
-  { command: "set", description: "Practice your own custom question" },
-]).catch(() => {});
+  bot.catch((err) => {
+    const msg = err.message || String(err);
+    if (msg.includes("409") || msg.includes("Conflict")) {
+      console.warn("⚠️ [Telegram 409 Conflict] Another instance of the bot is running elsewhere (e.g., your local machine).");
+      console.warn("👉 Stop your local bot process so Render can receive Telegram updates.");
+    } else {
+      console.error("[Telegram Bot Error]", err);
+    }
+  });
 
-// Start the Grammy bot polling
-bot.start();
-console.log("TNPSC Mains Bot running with Automatic Q&A Generation & Notion Hierarchy Integration...");
+  bot.api.setMyCommands([
+    { command: "start", description: "Start practice & select Paper" },
+    { command: "daily", description: "Run/view daily 9 AM PYQ question" },
+    { command: "status", description: "View schedule & auto-heal status" },
+    { command: "subscribe", description: "Subscribe to 9 AM daily alerts" },
+    { command: "menu", description: "Open syllabus navigation" },
+    { command: "auto", description: "Auto-generate Q&A and save to Notion" },
+    { command: "model", description: "Get official 12-rule model answer" },
+    { command: "current", description: "View current active question" },
+    { command: "save", description: "Save current session to Notion" },
+    { command: "set", description: "Practice your own custom question" },
+  ]).catch(() => {});
 
-// Start the daily 9:00 AM scheduler with missed-run auto-healing
-startDailyScheduler(bot);
+  bot.start({
+    drop_pending_updates: true,
+    onStart: (botInfo) => {
+      console.log(`🤖 [Telegram] Connected as @${botInfo.username}. Active & listening for updates!`);
+    },
+  }).catch((err) => {
+    console.error("Bot polling error:", err.message);
+  });
+
+  startDailyScheduler(bot);
+} else {
+  console.warn("⚠️ [Telegram Bot] Polling disabled due to missing TELEGRAM_BOT_TOKEN.");
+  startDailyScheduler(null);
+}
+
+// ─────────────────────────────────────────────────────────────
+// HTTP WEB SERVER (REQUIRED FOR RENDER.COM WEB SERVICES)
+// ─────────────────────────────────────────────────────────────
+const PORT = parseInt(process.env.PORT, 10) || 3000;
+const HOST = "0.0.0.0";
+
+const server = http.createServer((req, res) => {
+  const parsedUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
+  // Health check endpoint for Render.com
+  if (parsedUrl.pathname === "/health" || parsedUrl.pathname === "/healthz") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({
+      status: "healthy",
+      service: "TNPSC Mains Bot",
+      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+      botConnected: Boolean(bot),
+      schedulerActive: true,
+      environmentConfigured: missingVars.length === 0,
+      port: PORT,
+    }));
+  }
+
+  // Trigger daily job on demand via HTTP
+  if (parsedUrl.pathname === "/daily" || parsedUrl.pathname === "/trigger-daily") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.write(JSON.stringify({ status: "initiated", message: "Running daily PYQ job..." }));
+    runDailyPYQJob({ force: true, bot }).catch((err) => console.error("Web daily trigger error:", err));
+    return res.end();
+  }
+
+  // Web Dashboard (GET /)
+  if (parsedUrl.pathname === "/") {
+    const schedulerStatus = getSchedulerStatus();
+    const html = generateDashboardHTML({
+      botConnected: Boolean(bot),
+      missingVars,
+      schedulerStatus,
+      port: PORT,
+    });
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    return res.end(html);
+  }
+
+  res.writeHead(404, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: "Endpoint not found" }));
+});
+
+server.listen(PORT, HOST, () => {
+  console.log(`🌐 [Render Web Server] Listening on http://${HOST}:${PORT}`);
+  console.log(`💓 [Health Check] Available at http://${HOST}:${PORT}/health`);
+});
+
+// Render Free Tier Keep-Alive Self-Pinger (pings every 14 mins if RENDER_EXTERNAL_URL is set)
+const renderExternalUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
+if (renderExternalUrl) {
+  console.log(`📡 [Render Keep-Alive] Initialized for ${renderExternalUrl}. Pinging every 14 minutes.`);
+  setInterval(async () => {
+    try {
+      const pingUrl = `${renderExternalUrl.replace(/\/$/, "")}/health`;
+      const res = await fetch(pingUrl);
+      console.log(`💓 [Render Keep-Alive] Pinged ${pingUrl} - Status: ${res.status}`);
+    } catch (err) {
+      console.warn(`💓 [Render Keep-Alive] Ping failed: ${err.message}`);
+    }
+  }, 14 * 60 * 1000);
+}
+
+// ─────────────────────────────────────────────────────────────
+// DASHBOARD HTML GENERATOR
+// ─────────────────────────────────────────────────────────────
+function generateDashboardHTML({ botConnected, missingVars, schedulerStatus, port }) {
+  const isHealthy = botConnected && missingVars.length === 0;
+  const statusColor = isHealthy ? "#10b981" : "#f59e0b";
+  const statusLabel = isHealthy ? "Online & Healthy" : "Setup Attention Needed";
+
+  const envRows = [
+    { name: "TELEGRAM_BOT_TOKEN", set: Boolean(process.env.TELEGRAM_BOT_TOKEN) },
+    { name: "GEMINI_API_KEY", set: Boolean(process.env.GEMINI_API_KEY) },
+    { name: "NOTION_TOKEN", set: Boolean(process.env.NOTION_TOKEN) },
+    { name: "NOTION_DATABASE_ID", set: Boolean(process.env.NOTION_DATABASE_ID) },
+    { name: "PORT", set: Boolean(process.env.PORT), value: String(port) },
+    { name: "GEMINI_MODEL", set: Boolean(process.env.GEMINI_MODEL), value: process.env.GEMINI_MODEL || "gemini-2.5-flash (default)" },
+  ].map((item) => `
+    <tr>
+      <td style="padding: 10px 14px; font-family: monospace; color: #93c5fd;">${item.name}</td>
+      <td style="padding: 10px 14px;">
+        ${item.set 
+          ? `<span style="background: rgba(16, 185, 129, 0.15); color: #34d399; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;">CONFIGURED ${item.value ? `(${item.value})` : ""}</span>`
+          : `<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;">MISSING IN RENDER</span>`
+        }
+      </td>
+    </tr>
+  `).join("");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TNPSC Mains Bot - Status Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0b0f19;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+    .container { max-width: 860px; width: 100%; }
+    .header {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9));
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 28px;
+      margin-bottom: 24px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    }
+    .header-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .title { font-size: 26px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 10px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid ${statusColor};
+      color: ${statusColor};
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: ${statusColor}; animation: pulse 2s infinite; }
+    @keyframes pulse { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
+    .subtitle { color: #94a3b8; font-size: 14px; margin-top: 8px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .card {
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .card-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; font-weight: 600; margin-bottom: 8px; }
+    .card-val { font-size: 18px; font-weight: 700; color: #f1f5f9; }
+    .card-desc { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .section {
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .section-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #cbd5e1; }
+    table { width: 100%; border-collapse: collapse; }
+    tr:not(:last-child) { border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      color: #fff;
+      background: #2563eb;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #1d4ed8; }
+    .btn-secondary { background: rgba(255, 255, 255, 0.1); color: #cbd5e1; }
+    .btn-secondary:hover { background: rgba(255, 255, 255, 0.15); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-top">
+        <div class="title">🏛️ TNPSC Mains Preparation Bot</div>
+        <div class="badge"><div class="dot"></div>${statusLabel}</div>
+      </div>
+      <div class="subtitle">AI-Powered Telegram Answer Evaluator • 12-Rule Architecture • Daily 9:00 AM PYQ Rotation</div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-title">🤖 Telegram Polling</div>
+        <div class="card-val">${botConnected ? "Connected & Active" : "Waiting for Token"}</div>
+        <div class="card-desc">Grammy Long Polling with Auto-Recovery</div>
+      </div>
+      <div class="card">
+        <div class="card-title">⏰ Daily Schedule</div>
+        <div class="card-val">Every Day at 09:00 AM</div>
+        <div class="card-desc">Asia/Kolkata (IST) timezone cron</div>
+      </div>
+      <div class="card">
+        <div class="card-title">🎯 Active Syllabus Topic</div>
+        <div class="card-val" style="font-size: 15px;">${schedulerStatus.currentTopicName || "Advent of Europeans"}</div>
+        <div class="card-desc">${schedulerStatus.currentTopicPaper || "General Studies I"} ➔ Next: ${schedulerStatus.nextTopicName || "..."}</div>
+      </div>
+      <div class="card">
+        <div class="card-title">🛡️ Auto-Healing</div>
+        <div class="card-val" style="color: #34d399;">Active</div>
+        <div class="card-desc">Model failover & State self-repair</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">⚙️ Render Environment Variables Status</div>
+      <table>
+        <tbody>
+          ${envRows}
+        </tbody>
+      </table>
+      ${missingVars.length > 0 ? `
+        <div style="margin-top: 16px; padding: 12px 16px; background: rgba(239, 68, 68, 0.1); border-left: 4px solid #ef4444; border-radius: 4px; font-size: 13px; color: #fca5a5;">
+          <strong>Action Required:</strong> Please go to your <strong>Render Dashboard ➔ Environment</strong> and add the missing keys shown above, then click 'Save Changes'.
+        </div>
+      ` : ""}
+    </div>
+
+    <div class="actions">
+      <a href="/health" class="btn btn-secondary" target="_blank">🩺 Health JSON</a>
+      <a href="/trigger-daily" class="btn" target="_blank">⚡ Test Daily Job</a>
+    </div>
+  </div>
+</body>
+</html>`;
+}

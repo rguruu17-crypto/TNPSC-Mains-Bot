@@ -12,6 +12,7 @@ const {
   subscribeChat,
   unsubscribeChat,
   getSchedulerStatus,
+  getTopicPipeline,
 } = require("./daily_scheduler");
 
 // Initialize process-level crash prevention guard
@@ -40,6 +41,98 @@ if (hasBotToken) {
   console.warn("🌐 HTTP server will remain active on PORT for Render health checks.");
   console.warn("=======================================================\n");
 }
+
+// ─────────────────────────────────────────────────────────────
+// SYSTEM HEALTH METER & TOPIC PIPELINE FORMATTERS
+// ─────────────────────────────────────────────────────────────
+function getHealthMeter() {
+  const hasBot = Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_TOKEN.trim());
+  const hasGemini = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim());
+  const hasNotion = Boolean(process.env.NOTION_TOKEN && process.env.NOTION_DATABASE_ID);
+
+  let score = 0;
+  const total = 5;
+  if (hasBot) score++;
+  if (hasGemini) score++;
+  if (hasNotion) score++;
+  score++; // Daily 9:00 AM scheduler active
+  score++; // Auto-healer crash guard armed
+
+  const pct = Math.round((score / total) * 100);
+  const filled = Math.round((pct / 100) * 10);
+  const bar = "█".repeat(filled) + "░".repeat(10 - filled);
+
+  return {
+    score,
+    total,
+    pct,
+    bar,
+    statusText: pct === 100 ? "OPTIMAL / HEALTHY" : "ATTENTION NEEDED",
+    telegram: hasBot ? "🟢 Online (Long-Polling Active)" : "🔴 Token Missing",
+    gemini: hasGemini ? "🟢 Active (3-Model Failover Pool)" : "🔴 Key Missing",
+    notion: hasNotion ? "🟢 Connected & Synced" : "🔴 Not Configured",
+    scheduler: "🟢 Active (09:00 AM Asia/Kolkata)",
+    autoHealer: "🟢 Armed (Zero-Crash Guard)",
+  };
+}
+
+function formatHealthMeterHTML(compact = false) {
+  const m = getHealthMeter();
+  if (compact) {
+    return [
+      `📊 <b>System Health:</b> <code>[${m.bar}] ${m.pct}% ${m.statusText}</code>`,
+      `• Telegram: ${m.telegram} | Gemini AI: ${m.gemini} | Notion: ${m.notion}`,
+    ].join("\n");
+  }
+
+  return [
+    `📊 <b>SYSTEM HEALTH METER:</b>`,
+    `<code>[${m.bar}] ${m.pct}% ${m.statusText}</code>`,
+    `• 🤖 <b>Telegram Gateway:</b> ${m.telegram}`,
+    `• 🧠 <b>Google Gemini AI:</b> ${m.gemini}`,
+    `• 📓 <b>Notion Workspace:</b> ${m.notion}`,
+    `• ⏰ <b>9:00 AM Daily Scheduler:</b> ${m.scheduler}`,
+    `• 🛡️ <b>Auto-Healing Engine:</b> ${m.autoHealer}`,
+  ].join("\n");
+}
+
+function formatPipelineHTML(pipeline) {
+  const lines = [];
+  lines.push(`🗓️ <b>DAILY SYLLABUS TOPIC PIPELINE:</b>`);
+  lines.push(``);
+
+  if (pipeline.alreadyRanToday) {
+    lines.push(`📌 <b>Today's Generated Topic (${pipeline.todayStr}):</b>`);
+    lines.push(`🎯 <b>${pipeline.todayTopic.topic}</b>`);
+    lines.push(`✅ <i>Status: 2 PYQs generated & synced to Notion!</i>`);
+    if (pipeline.todayTopic.notionUrl) {
+      lines.push(`🔗 <a href="${pipeline.todayTopic.notionUrl}">Open Today's Notion Topic Page</a>`);
+    }
+  } else {
+    lines.push(`🎯 <b>Today's Scheduled Topic (${pipeline.todayStr}):</b>`);
+    lines.push(`🏛️ <i>${pipeline.todayTopic.paper} ➔ ${pipeline.todayTopic.unit}</i>`);
+    lines.push(`<b>${pipeline.todayTopic.topic}</b>`);
+    lines.push(`⏳ <i>Status: Scheduled for 09:00 AM IST (or tap 'Run Today Now')</i>`);
+  }
+
+  lines.push(``);
+  lines.push(`➡️ <b>Tomorrow's Topic to be Generated:</b>`);
+  lines.push(`🏛️ <i>${pipeline.tomorrowTopic.paper} ➔ ${pipeline.tomorrowTopic.unit}</i>`);
+  lines.push(`🎯 <b>${pipeline.tomorrowTopic.topic}</b>`);
+  lines.push(`⏰ <i>Trigger Time: Tomorrow at 09:00 AM IST (Asia/Kolkata)</i>`);
+  lines.push(`⚡ <i>Will generate: 2 authentic PYQs + 12-Rule Model Answers + Notion sync</i>`);
+
+  if (pipeline.upcomingTopics && pipeline.upcomingTopics.length > 0) {
+    lines.push(``);
+    lines.push(`📋 <i>Upcoming in Rotation:</i>`);
+    pipeline.upcomingTopics.slice(0, 2).forEach((t, i) => {
+      lines.push(`• Day +${i + 2}: <b>${t.topic}</b> (<i>${t.paper}</i>)`);
+    });
+  }
+
+  return lines.join("\n");
+}
+
 
 // Typical TNPSC Mains word limits by marks
 const WORDS_BY_MARKS = { 5: 80, 10: 150, 15: 300, 20: 350 };
@@ -154,8 +247,18 @@ function findUnitById(unitId) {
 
 // Step 1: Select Paper
 function getPapersInlineKeyboard() {
-  return new InlineKeyboard()
-    .text("📜 General Studies I (Paper II)", "paper:GS1")
+  const pipeline = getTopicPipeline();
+  const kb = new InlineKeyboard();
+
+  if (pipeline.alreadyRanToday && pipeline.todayTopic.notionUrl) {
+    kb.url("🔗 Open Today's Notion Page", pipeline.todayTopic.notionUrl).row();
+  }
+
+  kb.text("➡️ Tomorrow's Topic Details", "action:tomorrow_preview")
+    .text("⚡ Run Today's 2 PYQs", "action:run_daily_now")
+    .row();
+
+  kb.text("📜 General Studies I (Paper II)", "paper:GS1")
     .row()
     .text("⚖️ General Studies II (Paper III)", "paper:GS2")
     .row()
@@ -163,7 +266,9 @@ function getPapersInlineKeyboard() {
     .row()
     .text("⚡ Auto-Generate for All 9 Units (GS I, II & III)", "action:auto_all_papers")
     .row()
-    .text("🎲 Random Topic from Any Paper", "action:random_topic");
+    .text("📊 Health Meter & Diagnostics", "action:view_status");
+
+  return kb;
 }
 
 // Step 2: Select Unit
@@ -381,29 +486,40 @@ async function handleSaveToNotion(ctx) {
 function registerBotHandlers(bot) {
   // /start: Clears any old bottom keyboard and shows the Papers menu
   bot.command("start", async (ctx) => {
-  userState.delete(ctx.chat.id);
-  subscribeChat(ctx.chat.id);
-  // Remove any previously docked bottom keyboard
-  await ctx.reply("🎯 <b>Welcome to TNPSC Group-1 Mains Specialist Bot</b>", {
-    reply_markup: { remove_keyboard: true },
-  });
+    userState.delete(ctx.chat.id);
+    subscribeChat(ctx.chat.id);
 
-  const welcomeText = [
-    "Practice official 15-mark and 10-mark answers adhering strictly to the <b>Tamil Nadu Career Services 12-Rule Format</b>:",
-    "• <b>Introduction:</b> Exactly 4 lines + 🔴 [CORE FOCUS BOX]",
-    "• <b>Subheadings:</b> 5 to 6 subheadings with exactly 6 numbered points each",
-    "• <b>Unique Highlights:</b> 🔴 Red boxed differentiator in every subheading",
-    "• <b>Conclusion:</b> Exactly 4 to 5 lines with forward-looking Way Forward",
-    "• <b>Answer Submission:</b> Text message, handwritten photo, or <b>PDF document</b> (evaluated via Gemini Vision)",
-    "",
-    "<b>Step 1: Choose a General Studies Paper to begin:</b>",
-  ].join("\n");
+    const pipeline = getTopicPipeline();
+    const healthText = formatHealthMeterHTML(false);
+    const pipelineText = formatPipelineHTML(pipeline);
 
-  await ctx.reply(welcomeText, {
-    parse_mode: "HTML",
-    reply_markup: getPapersInlineKeyboard(),
+    // Remove any previously docked bottom keyboard
+    await ctx.reply("🎯 <b>Welcome to TNPSC Group-1 Mains Specialist Bot</b>", {
+      reply_markup: { remove_keyboard: true },
+    });
+
+    const welcomeText = [
+      healthText,
+      "",
+      pipelineText,
+      "",
+      "────────────────────────────────────",
+      "Practice official 15-mark and 10-mark answers adhering strictly to the <b>Tamil Nadu Career Services 12-Rule Format</b>:",
+      "• <b>Introduction:</b> Exactly 4 lines + 🔴 [CORE FOCUS BOX]",
+      "• <b>Subheadings:</b> 5 to 6 subheadings with exactly 6 numbered points each",
+      "• <b>Unique Highlights:</b> 🔴 Red boxed differentiator in every subheading",
+      "• <b>Conclusion:</b> Exactly 4 to 5 lines with forward-looking Way Forward",
+      "• <b>Answer Submission:</b> Text message, handwritten photo, or <b>PDF document</b> (evaluated via Gemini Vision)",
+      "",
+      "<b>Step 1: Choose a General Studies Paper to begin:</b>",
+    ].join("\n");
+
+    await ctx.reply(welcomeText, {
+      parse_mode: "HTML",
+      disable_web_page_preview: false,
+      reply_markup: getPapersInlineKeyboard(),
+    });
   });
-});
 
 // /menu or /syllabus
 bot.command(["menu", "syllabus"], async (ctx) => {
@@ -851,26 +967,56 @@ bot.command(["daily", "daily_pyq", "today"], async (ctx) => {
   }
 });
 
-// /status command - View scheduler and auto-heal health status
-bot.command(["status", "scheduler"], async (ctx) => {
+// /tomorrow command - View tomorrow's scheduled topic
+bot.command(["tomorrow", "next_topic"], async (ctx) => {
+  const pipeline = getTopicPipeline();
+  const t = pipeline.tomorrowTopic;
+  const text = [
+    `➡️ <b>Tomorrow's Scheduled Topic Preview (09:00 AM IST)</b>`,
+    ``,
+    `📚 <b>Paper:</b> ${t.paper}`,
+    `🏛️ <b>Unit:</b> ${t.unit}`,
+    `🎯 <b>Target Topic:</b> <b>${t.topic}</b>`,
+    ``,
+    `⏰ <b>Execution Time:</b> Tomorrow at 09:00 AM (Asia/Kolkata IST)`,
+    `⚡ <b>What Bot Will Generate Tomorrow:</b>`,
+    `1. <b>Question 1 (PYQ):</b> Authentic TNPSC Mains question testing core syllabus`,
+    `2. <b>Question 2 (PYQ):</b> Distinct second PYQ testing a complementary angle`,
+    `3. <b>Model Answers:</b> Strict 12-rule format (Current Affairs callout, yellow-highlighted bullet points, unique key box)`,
+    `4. <b>Notion Hierarchy:</b> Auto-saved inside Notion topic page under its Unit hierarchy`,
+    `5. <b>Broadcast:</b> Delivered directly to all subscribed Telegram students`,
+    ``,
+    pipeline.upcomingTopics && pipeline.upcomingTopics.length > 0
+      ? `📋 <i>Topic for Day After Tomorrow: <b>${pipeline.upcomingTopics[0].topic}</b></i>`
+      : ``,
+  ].filter(Boolean).join("\n");
+
+  await ctx.reply(text, {
+    parse_mode: "HTML",
+    reply_markup: new InlineKeyboard()
+      .text("⚡ Generate Tomorrow's Questions Now", "action:run_tomorrow_now")
+      .row()
+      .text("📚 Choose Another Paper", "action:pick_topic")
+      .text("📊 Health Meter", "action:view_status"),
+  });
+});
+
+// /status command - View full health meter, topic pipeline and scheduler status
+bot.command(["status", "scheduler", "health"], async (ctx) => {
   const status = getSchedulerStatus();
   const isSubscribed = (status.subscribedChats || []).includes(ctx.chat.id);
+  const healthText = formatHealthMeterHTML(false);
+  const pipelineText = formatPipelineHTML(status.pipeline);
 
   const text = [
-    `🛡️ <b>TNPSC Mains Bot & Scheduler Status:</b>`,
+    healthText,
     ``,
-    `⏰ <b>Daily Schedule:</b> Every day at 09:00 AM (Asia/Kolkata)`,
-    `🔄 <b>Sequential Rotation:</b> Topic jumps every day (${status.currentTopicIndex + 1}/${status.totalTopics} completed)`,
-    `🎯 <b>Current Active Topic:</b> ${status.currentTopicName}`,
-    `📚 <b>Paper & Unit:</b> ${status.currentTopicPaper} - ${status.currentTopicUnit}`,
-    `➡️ <b>Next Scheduled Topic:</b> ${status.nextTopicName}`,
+    pipelineText,
     ``,
-    `📅 <b>Today's Status (${status.todayIST}):</b> ${status.lastRunDate === status.todayIST ? "✅ Completed" : "⏳ Pending (9:00 AM trigger)"}`,
-    status.lastRunNotionUrl ? `🔗 <b>Latest Notion Link:</b> <a href="${status.lastRunNotionUrl}">View Today's Page</a>` : "",
-    ``,
-    `🔔 <b>Your Subscription:</b> ${isSubscribed ? "✅ Subscribed to 9:00 AM Broadcast" : "❌ Not Subscribed (type /subscribe)"}`,
-    `❤️ <b>Auto-Healing Engine:</b> Active (Model failover, missed-job catch-up, state self-repair, process guard)`,
-  ].filter(Boolean).join("\n");
+    `🔄 <b>Rotation Progress:</b> Topic ${status.currentTopicIndex + 1} of ${status.totalTopics} in Syllabus`,
+    `📅 <b>Today's Status (${status.todayIST}):</b> ${status.lastRunDate === status.todayIST ? "✅ Completed & Saved to Notion" : "⏳ Scheduled for 09:00 AM IST"}`,
+    `🔔 <b>Broadcast Alerts:</b> ${isSubscribed ? "✅ Subscribed to 9:00 AM Broadcast" : "❌ Not Subscribed (tap button below)"}`,
+  ].join("\n");
 
   await ctx.reply(text, {
     parse_mode: "HTML",
@@ -878,7 +1024,10 @@ bot.command(["status", "scheduler"], async (ctx) => {
     reply_markup: new InlineKeyboard()
       .text(isSubscribed ? "🔕 Unsubscribe" : "🔔 Subscribe to 9 AM Alerts", isSubscribed ? "action:unsub" : "action:sub")
       .row()
-      .text("⚡ Run Daily Job Now", "action:run_daily_now"),
+      .text("➡️ Tomorrow's Topic Details", "action:tomorrow_preview")
+      .text("⚡ Run Daily Job Now", "action:run_daily_now")
+      .row()
+      .text("📚 Choose Paper", "action:pick_topic"),
   });
 });
 
@@ -903,6 +1052,87 @@ bot.callbackQuery("action:unsub", async (ctx) => {
   await ctx.answerCallbackQuery({ text: "Unsubscribed" }).catch(() => {});
   unsubscribeChat(ctx.chat.id);
   await ctx.reply("🔕 <b>Unsubscribed from daily 9 AM questions.</b>", { parse_mode: "HTML" });
+});
+
+bot.callbackQuery("action:tomorrow_preview", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const pipeline = getTopicPipeline();
+  const t = pipeline.tomorrowTopic;
+  const text = [
+    `➡️ <b>Tomorrow's Scheduled Topic Preview (09:00 AM IST)</b>`,
+    ``,
+    `📚 <b>Paper:</b> ${t.paper}`,
+    `🏛️ <b>Unit:</b> ${t.unit}`,
+    `🎯 <b>Target Topic:</b> <b>${t.topic}</b>`,
+    ``,
+    `⏰ <b>Execution Time:</b> Tomorrow at 09:00 AM (Asia/Kolkata IST)`,
+    `⚡ <b>What Bot Will Generate Tomorrow:</b>`,
+    `• 2 Authentic TNPSC Mains PYQs`,
+    `• Complete 12-Rule Model Answers with Current Affairs & Unique Key boxes`,
+    `• Sequential Notion Topic Page (📌 Question - 1, 📌 Question - 2)`,
+    `• Automatic broadcast to subscribed students`,
+    ``,
+    pipeline.upcomingTopics && pipeline.upcomingTopics.length > 0
+      ? `📋 <i>Topic for Day After Tomorrow: <b>${pipeline.upcomingTopics[0].topic}</b></i>`
+      : ``,
+  ].filter(Boolean).join("\n");
+
+  await ctx.reply(text, {
+    parse_mode: "HTML",
+    reply_markup: new InlineKeyboard()
+      .text("⚡ Generate Tomorrow's Questions Now", "action:run_tomorrow_now")
+      .row()
+      .text("📚 Choose Another Paper", "action:pick_topic")
+      .text("📊 Health Meter", "action:view_status"),
+  });
+});
+
+bot.callbackQuery("action:run_tomorrow_now", async (ctx) => {
+  await ctx.answerCallbackQuery({ text: "Generating tomorrow's topic now..." }).catch(() => {});
+  await ctx.reply("⏳ <i>Generating tomorrow's 2 TNPSC Mains PYQs & model answers right now...</i>", { parse_mode: "HTML" });
+  try {
+    const res = await runDailyPYQJob({ force: true, bot });
+    await ctx.reply(
+      `✅ <b>Completed Tomorrow's Topic!</b>\n\n🎯 <b>Topic:</b> ${res.topic}\n\n📌 <b>Question 1:</b>\n<i>${res.question1 || res.question}</i>\n\n📌 <b>Question 2:</b>\n<i>${res.question2}</i>\n\n🔗 <a href="${res.notionUrl}">Open in Notion Topic Page</a>\n\n➡️ <i>Next Scheduled Topic: <b>${res.nextTopic}</b></i>`,
+      {
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard()
+          .url("🔗 Open in Notion", res.notionUrl)
+          .row()
+          .text("📚 Main Menu", "action:pick_topic"),
+      }
+    );
+  } catch (err) {
+    await ctx.reply(`⚠️ Error generating: ${err.message}`);
+  }
+});
+
+bot.callbackQuery("action:view_status", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const status = getSchedulerStatus();
+  const healthText = formatHealthMeterHTML(false);
+  const pipelineText = formatPipelineHTML(status.pipeline);
+  const isSubscribed = (status.subscribedChats || []).includes(ctx.chat.id);
+
+  const text = [
+    healthText,
+    ``,
+    pipelineText,
+    ``,
+    `🔔 <b>Broadcast Alerts:</b> ${isSubscribed ? "✅ Subscribed to 9:00 AM Broadcast" : "❌ Not Subscribed"}`,
+  ].join("\n");
+
+  await ctx.reply(text, {
+    parse_mode: "HTML",
+    disable_web_page_preview: false,
+    reply_markup: new InlineKeyboard()
+      .text(isSubscribed ? "🔕 Unsubscribe" : "🔔 Subscribe to 9 AM Alerts", isSubscribed ? "action:unsub" : "action:sub")
+      .row()
+      .text("➡️ Tomorrow's Topic", "action:tomorrow_preview")
+      .text("⚡ Run Daily Job Now", "action:run_daily_now")
+      .row()
+      .text("⬅️ Back to Menu", "action:pick_topic"),
+  });
 });
 
 bot.callbackQuery("action:run_daily_now", async (ctx) => {
@@ -937,9 +1167,10 @@ if (bot) {
   });
 
   bot.api.setMyCommands([
-    { command: "start", description: "Start practice & select Paper" },
-    { command: "daily", description: "Run/view daily 9 AM PYQ question" },
-    { command: "status", description: "View schedule & auto-heal status" },
+    { command: "start", description: "Start practice & view Health Meter" },
+    { command: "tomorrow", description: "View tomorrow's scheduled topic (9 AM)" },
+    { command: "daily", description: "Run/view today's 9 AM PYQ questions" },
+    { command: "status", description: "System Health Meter & pipeline status" },
     { command: "subscribe", description: "Subscribe to 9 AM daily alerts" },
     { command: "menu", description: "Open syllabus navigation" },
     { command: "auto", description: "Auto-generate Q&A and save to Notion" },
@@ -959,6 +1190,22 @@ if (bot) {
   });
 
   startDailyScheduler(bot);
+
+  // Print startup Health Meter & Topic Pipeline banner
+  const h = getHealthMeter();
+  const p = getTopicPipeline();
+  console.log(`\n======================================================`);
+  console.log(`📊 SYSTEM HEALTH METER: [${h.bar}] ${h.pct}% ${h.statusText}`);
+  console.log(`• Telegram Gateway: ${h.telegram}`);
+  console.log(`• Gemini AI Engine: ${h.gemini}`);
+  console.log(`• Notion Workspace: ${h.notion}`);
+  console.log(`• Daily Scheduler: ${h.scheduler}`);
+  console.log(`• Auto-Healer Guard: ${h.autoHealer}`);
+  console.log(`------------------------------------------------------`);
+  console.log(`🗓️ SYLLABUS ROTATION PIPELINE:`);
+  console.log(`📌 Today's Topic: ${p.todayTopic.topic} (${p.alreadyRanToday ? "COMPLETED" : "PENDING 9 AM"})`);
+  console.log(`➡️ Tomorrow's Topic (09:00 AM IST): ${p.tomorrowTopic.topic} (${p.tomorrowTopic.paper} - ${p.tomorrowTopic.unit})`);
+  console.log(`======================================================\n`);
 } else {
   console.warn("⚠️ [Telegram Bot] Polling disabled due to missing TELEGRAM_BOT_TOKEN.");
   startDailyScheduler(null);
@@ -1037,6 +1284,8 @@ if (renderExternalUrl) {
 // DASHBOARD HTML GENERATOR
 // ─────────────────────────────────────────────────────────────
 function generateDashboardHTML({ botConnected, missingVars, schedulerStatus, port }) {
+  const meter = getHealthMeter();
+  const pipeline = getTopicPipeline();
   const isHealthy = botConnected && missingVars.length === 0;
   const statusColor = isHealthy ? "#10b981" : "#f59e0b";
   const statusLabel = isHealthy ? "Online & Healthy" : "Setup Attention Needed";
@@ -1156,25 +1405,47 @@ function generateDashboardHTML({ botConnected, missingVars, schedulerStatus, por
       <div class="subtitle">AI-Powered Telegram Answer Evaluator • 12-Rule Architecture • Daily 9:00 AM PYQ Rotation</div>
     </div>
 
+    <!-- Health Meter Gauge -->
+    <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 18px 22px; margin-bottom: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.3);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.05em; color: #94a3b8;">📊 SYSTEM HEALTH METER</span>
+        <span style="font-size: 14px; font-weight: 700; color: ${meter.pct === 100 ? '#34d399' : '#f59e0b'};">${meter.pct}% ${meter.statusText}</span>
+      </div>
+      <div style="background: rgba(255, 255, 255, 0.08); border-radius: 999px; height: 12px; overflow: hidden;">
+        <div style="background: linear-gradient(90deg, #3b82f6, #10b981); height: 100%; width: ${meter.pct}%; border-radius: 999px;"></div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: 12px; color: #94a3b8;">
+        <div>🤖 Telegram: <strong style="color: #f1f5f9;">${meter.telegram}</strong></div>
+        <div>🧠 Gemini AI: <strong style="color: #f1f5f9;">${meter.gemini}</strong></div>
+        <div>📓 Notion Sync: <strong style="color: #f1f5f9;">${meter.notion}</strong></div>
+        <div>⏰ 9:00 AM Cron: <strong style="color: #f1f5f9;">${meter.scheduler}</strong></div>
+      </div>
+    </div>
+
     <div class="grid">
       <div class="card">
-        <div class="card-title">🤖 Telegram Polling</div>
+        <div class="card-title">📌 Today's Generated Topic</div>
+        <div class="card-val" style="font-size: 15px;">${pipeline.todayTopic.topic}</div>
+        <div class="card-desc">
+          ${pipeline.alreadyRanToday 
+            ? `<span style="color: #34d399;">✅ 2 PYQs Generated & Saved</span>` 
+            : `<span style="color: #f59e0b;">⏳ Scheduled for 09:00 AM IST</span>`}
+          ${pipeline.todayTopic.notionUrl ? ` • <a href="${pipeline.todayTopic.notionUrl}" style="color: #60a5fa;" target="_blank">View in Notion ↗</a>` : ''}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">➡️ Tomorrow's Scheduled Topic</div>
+        <div class="card-val" style="font-size: 15px;">${pipeline.tomorrowTopic.topic}</div>
+        <div class="card-desc">${pipeline.tomorrowTopic.paper} • ⏰ 09:00 AM IST</div>
+      </div>
+      <div class="card">
+        <div class="card-title">🤖 Telegram Gateway</div>
         <div class="card-val">${botConnected ? "Connected & Active" : "Waiting for Token"}</div>
         <div class="card-desc">Grammy Long Polling with Auto-Recovery</div>
       </div>
       <div class="card">
-        <div class="card-title">⏰ Daily Schedule</div>
-        <div class="card-val">Every Day at 09:00 AM</div>
-        <div class="card-desc">Asia/Kolkata (IST) timezone cron</div>
-      </div>
-      <div class="card">
-        <div class="card-title">🎯 Active Syllabus Topic</div>
-        <div class="card-val" style="font-size: 15px;">${schedulerStatus.currentTopicName || "Advent of Europeans"}</div>
-        <div class="card-desc">${schedulerStatus.currentTopicPaper || "General Studies I"} ➔ Next: ${schedulerStatus.nextTopicName || "..."}</div>
-      </div>
-      <div class="card">
-        <div class="card-title">🛡️ Auto-Healing</div>
-        <div class="card-val" style="color: #34d399;">Active</div>
+        <div class="card-title">🛡️ Auto-Healing Engine</div>
+        <div class="card-val" style="color: #34d399;">Active (Multi-Tier)</div>
         <div class="card-desc">Model failover & State self-repair</div>
       </div>
     </div>

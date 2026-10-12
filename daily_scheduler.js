@@ -312,23 +312,82 @@ function unsubscribeChat(chatId) {
   return false;
 }
 
-function getSchedulerStatus() {
+function getTopicPipeline() {
   const state = repairStateFile(STATE_FILE, DEFAULT_STATE);
-  const currentIdx = state.currentTopicIndex || 0;
-  const currentTopic = SYLLABUS_TOPICS[currentIdx] || SYLLABUS_TOPICS[0];
-  const nextIdx = (currentIdx + 1) % SYLLABUS_TOPICS.length;
-  const nextTopic = SYLLABUS_TOPICS[nextIdx];
+  const todayStr = getTodayIST();
+  const alreadyRanToday = state.lastRunDate === todayStr && state.lastRunStatus === "success";
+
+  let todayTopic = null;
+  let tomorrowTopic = null;
+  const upcomingTopics = [];
+
+  if (alreadyRanToday) {
+    todayTopic = {
+      topic: state.lastRunTopic,
+      status: "COMPLETED",
+      questions: state.lastRunQuestions || (state.lastRunQuestion ? [state.lastRunQuestion] : []),
+      notionUrl: state.lastRunNotionUrl,
+      timestamp: state.lastRunTime,
+    };
+    const tomorrowIdx = (state.currentTopicIndex || 0) % SYLLABUS_TOPICS.length;
+    tomorrowTopic = {
+      ...SYLLABUS_TOPICS[tomorrowIdx],
+      index: tomorrowIdx,
+      status: "SCHEDULED_9AM_TOMORROW",
+    };
+    for (let i = 1; i <= 3; i++) {
+      const idx = (tomorrowIdx + i) % SYLLABUS_TOPICS.length;
+      upcomingTopics.push({ ...SYLLABUS_TOPICS[idx], dayOffset: i + 1 });
+    }
+  } else {
+    const todayIdx = (state.currentTopicIndex || 0) % SYLLABUS_TOPICS.length;
+    todayTopic = {
+      ...SYLLABUS_TOPICS[todayIdx],
+      index: todayIdx,
+      status: "PENDING_9AM_TODAY",
+      questions: [],
+      notionUrl: null,
+    };
+    const tomorrowIdx = (todayIdx + 1) % SYLLABUS_TOPICS.length;
+    tomorrowTopic = {
+      ...SYLLABUS_TOPICS[tomorrowIdx],
+      index: tomorrowIdx,
+      status: "SCHEDULED_9AM_TOMORROW",
+    };
+    for (let i = 1; i <= 3; i++) {
+      const idx = (tomorrowIdx + i) % SYLLABUS_TOPICS.length;
+      upcomingTopics.push({ ...SYLLABUS_TOPICS[idx], dayOffset: i + 1 });
+    }
+  }
+
+  return {
+    alreadyRanToday,
+    todayStr,
+    todayTopic,
+    tomorrowTopic,
+    upcomingTopics,
+    currentTopicIndex: state.currentTopicIndex,
+    totalTopics: SYLLABUS_TOPICS.length,
+    subscribedCount: (state.subscribedChats || []).length,
+  };
+}
+
+function getSchedulerStatus() {
+  const pipeline = getTopicPipeline();
+  const state = repairStateFile(STATE_FILE, DEFAULT_STATE);
 
   return {
     ...state,
-    currentTopicName: currentTopic.topic,
-    currentTopicPaper: currentTopic.paper,
-    currentTopicUnit: currentTopic.unit,
-    nextTopicName: nextTopic.topic,
-    nextTopicPaper: nextTopic.paper,
-    nextTopicUnit: nextTopic.unit,
+    pipeline,
+    currentTopicName: pipeline.todayTopic.topic,
+    currentTopicPaper: pipeline.todayTopic.paper || "General Studies I",
+    currentTopicUnit: pipeline.todayTopic.unit || "Modern History of India and Indian Culture",
+    nextTopicName: pipeline.tomorrowTopic.topic,
+    nextTopicPaper: pipeline.tomorrowTopic.paper,
+    nextTopicUnit: pipeline.tomorrowTopic.unit,
     totalTopics: SYLLABUS_TOPICS.length,
-    todayIST: getTodayIST(),
+    todayIST: pipeline.todayStr,
+    alreadyRanToday: pipeline.alreadyRanToday,
   };
 }
 
@@ -338,5 +397,7 @@ module.exports = {
   subscribeChat,
   unsubscribeChat,
   getSchedulerStatus,
+  getTopicPipeline,
   resolveUnitId,
 };
+

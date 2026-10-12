@@ -22,6 +22,12 @@ const {
   checkAllApiHealth,
   formatApiSettingsCard,
 } = require("./api_manager");
+const {
+  getStatCategories,
+  formatCategoryCard,
+  searchStats,
+  formatSearchResultsCard,
+} = require("./tn_stats");
 
 // Initialize process-level crash prevention guard
 setupProcessGuard();
@@ -271,12 +277,36 @@ function getPapersInlineKeyboard() {
     .text("⚖️ General Studies II (Paper III)", "paper:GS2")
     .row()
     .text("📈 General Studies III (Paper IV)", "paper:GS3")
-    .row()
-    .text("⚡ Auto-Generate for All 9 Units (GS I, II & III)", "action:auto_all_papers")
+    .row();
+
+  kb.text("⏱️ 12-Min Real-Time Mock Exam", "action:start_mock_exam")
+    .text("🎯 TN Stats & Schemes Bank", "action:tn_stats")
+    .row();
+
+  kb.text("⚡ Auto-Generate for All 9 Units (GS I, II & III)", "action:auto_all_papers")
     .row()
     .text("📊 Health Meter", "action:view_status")
     .text("⚙️ API Keys & Updater", "action:api_settings");
 
+  return kb;
+}
+
+// TN Official Policy & Stats Bank Categories Keyboard
+function getStatsCategoriesKeyboard() {
+  const categories = getStatCategories();
+  const kb = new InlineKeyboard();
+  for (let i = 0; i < categories.length; i += 2) {
+    const c1 = categories[i];
+    const c2 = categories[i + 1];
+    if (c2) {
+      kb.text(c1.name.split(" ")[0] + " " + c1.name.split(" ")[1], `stats:cat:${c1.key}`)
+        .text(c2.name.split(" ")[0] + " " + c2.name.split(" ")[1], `stats:cat:${c2.key}`)
+        .row();
+    } else {
+      kb.text(c1.name, `stats:cat:${c1.key}`).row();
+    }
+  }
+  kb.text("⬅️ Back to Main Menu", "action:pick_topic");
   return kb;
 }
 
@@ -314,12 +344,17 @@ function getTopicPromptKeyboard(unitId) {
     .row()
     .text("📜 Generate Official TNPSC PYQ + Answer", `pyqunit:${unitId}`)
     .row()
+    .text("⏱️ 12-Min Mock Exam for this Unit", `mockunit:${unitId}`)
+    .row()
     .text("⬅️ Change Unit", "action:pick_topic");
 }
 
 // Actions after Question & Model Answer are displayed
 function getPostAnswerKeyboard(unitId = null) {
-  const kb = new InlineKeyboard();
+  const kb = new InlineKeyboard()
+    .text("🗺️ Answer Diagram", "action:diagram")
+    .text("🎯 TN Stats Bank", "action:tn_stats")
+    .row();
   if (unitId) {
     kb.text("⚡ Next Auto Q&A for this Unit", `auto:${unitId}`).row();
     kb.text("✍️ Enter Custom Topic", `unit:${unitId}`).row();
@@ -332,8 +367,10 @@ function getPostAnswerKeyboard(unitId = null) {
 function getQuestionActionKeyboard(unitId = null) {
   const kb = new InlineKeyboard()
     .text("🎯 Official 12-Rule Model Answer", "action:model")
+    .text("🗺️ Answer Diagram", "action:diagram")
     .row()
-    .text("📓 Save to Notion Topic Page", "action:save")
+    .text("⏱️ 12-Min Mock Exam", "action:start_mock_exam")
+    .text("📓 Save to Notion", "action:save")
     .row();
   if (unitId) {
     kb.text("⚡ Next Question in this Unit", `auto:${unitId}`).row();
@@ -557,19 +594,244 @@ function formatModernDailySuiteCard(res) {
   ].join("\n");
 }
 
-function formatModernEvaluationCard({ marks, evaluation, submissionType = "Text Answer", notionUrl = null }) {
-  return [
+function formatModernEvaluationCard({ marks, evaluation, submissionType = "Text Answer", notionUrl = null, mockTiming = null }) {
+  const headerLines = [
     `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
     `┃  ⚖️ <b>TNPSC 12-RULE EVALUATION REPORT</b>`,
     `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
     `📝 <b>Submission Type:</b> <code>${submissionType}</code>`,
     `⚖️ <b>Evaluated Weightage:</b> <code>${marks} MARKS</code>`,
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+  ];
+
+  if (mockTiming) {
+    headerLines.push(`⏱️ <b>Exam Time Taken:</b> <code>${mockTiming.timeTakenStr}</code> (Limit: 12:00)`);
+    headerLines.push(`⚡ <b>Speed Rating:</b> <b>${mockTiming.speedStatus}</b>`);
+  }
+
+  headerLines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  headerLines.push(``);
+  headerLines.push(evaluation);
+  headerLines.push(``);
+  if (notionUrl) {
+    headerLines.push(formatModernNotionSyncBanner({ topic: "Student Answer Evaluation", notionUrl, questionNumber: 1 }));
+  }
+
+  return headerLines.filter(Boolean).join("\n");
+}
+
+function formatModernDiagramCard({ question, diagram }) {
+  return [
+    `╭────────────────────────────────────────╮`,
+    `│  🗺️ <b>TNPSC MAINS VISUAL ANSWER BLUEPRINT</b>  │`,
+    `╰────────────────────────────────────────╯`,
+    `📋 <b>Target Question:</b>`,
+    `<i>${question}</i>`,
+    `────────────────────────────────────────`,
     ``,
-    evaluation,
+    diagram,
     ``,
-    notionUrl ? formatModernNotionSyncBanner({ topic: "Student Answer Evaluation", notionUrl, questionNumber: 1 }) : ``,
-  ].filter(Boolean).join("\n");
+    `────────────────────────────────────────`,
+    `💡 <i>Reproduce this schematic on unruled paper to capture 1.5–2.5 presentation bonus marks!</i>`,
+  ].join("\n");
+}
+
+// ─────────────────────────────────────────────────────────────
+// 12-MINUTE REAL-TIME MOCK EXAM SIMULATOR ENGINE
+// ─────────────────────────────────────────────────────────────
+const activeMockExams = new Map();
+
+function formatMockTimerCard(mock) {
+  const elapsed = Math.floor((Date.now() - mock.startTime) / 1000);
+  const remaining = Math.max(0, mock.totalSeconds - elapsed);
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const timeStr = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+
+  const pctRemaining = Math.max(0, Math.min(100, Math.round((remaining / mock.totalSeconds) * 100)));
+  const filled = Math.round((pctRemaining / 100) * 12);
+  const bar = "█".repeat(filled) + "░".repeat(12 - filled);
+
+  let phase = "Phase 1: Intro & Current Affairs Box (0-3 mins)";
+  if (remaining <= 120) {
+    phase = "Phase 4: Forward-Looking Conclusion (10-12 mins)";
+  } else if (remaining <= 360) {
+    phase = "Phase 3: Subheadings 4-6 & Unique Key Boxes (6-10 mins)";
+  } else if (remaining <= 540) {
+    phase = "Phase 2: Subheadings 1-3 with Keywords (3-6 mins)";
+  }
+
+  return [
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  ⏱️ <b>12-MINUTE LIVE EXAM TIMER</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `⏳ <b>TIME REMAINING:</b> <code>${timeStr}</code> (${pctRemaining}%)`,
+    `<code>[${bar}]</code>`,
+    ``,
+    `🎯 <b>Current Target:</b> <i>${phase}</i>`,
+    `📝 <b>Standard:</b> 15 Marks (~250 words) • 12-Rule Structure`,
+    `────────────────────────────────`,
+    `✍️ <i>Write on paper now! When finished, tap 'Submit Answer Early' or send your photo/PDF directly!</i>`,
+  ].join("\n");
+}
+
+function getMockTimerKeyboard() {
+  return new InlineKeyboard()
+    .text("⏹️ Submit Answer Early", "mock:submit_early")
+    .text("❌ Abort Exam", "mock:abort");
+}
+
+function cleanupMockExam(chatId) {
+  const mock = activeMockExams.get(chatId);
+  if (mock) {
+    if (mock.intervalId) clearInterval(mock.intervalId);
+    activeMockExams.delete(chatId);
+  }
+}
+
+function extractMockTiming(chatId) {
+  const mock = activeMockExams.get(chatId);
+  if (!mock) return null;
+
+  if (mock.intervalId) clearInterval(mock.intervalId);
+  const elapsed = mock.elapsedSeconds || Math.floor((Date.now() - mock.startTime) / 1000);
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  const timeTakenStr = `${mins}m ${String(secs).padStart(2, "0")}s`;
+  let speedStatus = "✅ Optimal Time Discipline (Finished within 12:00)";
+  if (elapsed < 540) {
+    speedStatus = "⚡ Lightning Fast Writing Speed (<9 mins)";
+  } else if (elapsed > 720) {
+    const overSecs = elapsed - 720;
+    speedStatus = `⚠️ Overtime by +${Math.floor(overSecs / 60)}m ${overSecs % 60}s (Need faster pacing)`;
+  }
+  activeMockExams.delete(chatId);
+  return { timeTakenStr, speedStatus, elapsed };
+}
+
+async function startMockExam(ctx, customTopic = null, unitId = null, existingQuestion = null) {
+  const chatId = ctx.chat.id;
+  cleanupMockExam(chatId);
+
+  let question = existingQuestion;
+  let topic = customTopic;
+
+  if (!question) {
+    const anim = await createProgressAnimator(ctx, "MOCK EXAM INITIALIZATION");
+    await anim.step("🎲 [1/2] Selecting High-Yield 15-Mark Topic...", 40, "Scanning TNPSC Mains question bank...");
+    const item = getRandomTopic(null, unitId ? findUnitById(unitId)?.unit.filterKey : null);
+    topic = item ? `${item.paper} - ${item.unit}: ${item.topic}` : "TNPSC Mains GS Topic";
+
+    await anim.step("✍️ [2/2] Generating Exam-Caliber Question...", 85, "Applying official TNPSC directives...");
+    question = await llm.generateQuestion(topic, 15);
+    await anim.delete();
+  }
+
+  // Set active session for the user
+  sessions.set(chatId, {
+    question,
+    marks: 15,
+    words: 250,
+    topic,
+    unitId: unitId || null,
+    isMock: true,
+  });
+
+  const mock = {
+    chatId,
+    question,
+    topic,
+    unitId,
+    startTime: Date.now(),
+    totalSeconds: 12 * 60, // 720s
+    milestoneHalfwaySent: false,
+    milestoneFinalSent: false,
+    elapsedSeconds: 0,
+    intervalId: null,
+    timerMsgId: null,
+  };
+
+  activeMockExams.set(chatId, mock);
+
+  // Send Mock Question Card
+  const qCard = [
+    `╔════════════════════════════════════════╗`,
+    `║  ⏱️ <b>12-MINUTE REAL-TIME MOCK EXAM</b>   ║`,
+    `╚════════════════════════════════════════╝`,
+    `🏛️ <b>Topic:</b> <i>${topic}</i>`,
+    `⚖️ <b>Weightage:</b> <code>15 MARKS (~250 WORDS)</code>`,
+    `⏱️ <b>Strict Time Limit:</b> <code>12 MINUTES (720 SECONDS)</code>`,
+    `────────────────────────────────────────`,
+    `📋 <b>QUESTION:</b>`,
+    `<b>${question}</b>`,
+    `────────────────────────────────────────`,
+    `📌 <b>MANDATORY 12-RULE STRUCTURE:</b>`,
+    `• <b>Intro:</b> 4 lines + 🔴 [CURRENT AFFAIRS BOX]`,
+    `• <b>Body:</b> 5 to 6 subheadings with 6 points each & bold keywords`,
+    `• <b>Differentiator:</b> 💡 [UNIQUE KEY BOX] in every subheading`,
+    `• <b>Conclusion:</b> 4 lines with forward-looking Way Forward`,
+    ``,
+    `✍️ <b>PENS UP! START WRITING NOW!</b>`,
+  ].join("\n");
+
+  await ctx.reply(qCard, { parse_mode: "HTML" });
+
+  // Send live countdown timer message
+  const timerMsg = await ctx.reply(formatMockTimerCard(mock), {
+    parse_mode: "HTML",
+    reply_markup: getMockTimerKeyboard(),
+  });
+  mock.timerMsgId = timerMsg.message_id;
+
+  // Run countdown ticker every 30 seconds
+  mock.intervalId = setInterval(async () => {
+    try {
+      const cur = activeMockExams.get(chatId);
+      if (!cur) return;
+
+      const elapsed = Math.floor((Date.now() - cur.startTime) / 1000);
+      const remaining = cur.totalSeconds - elapsed;
+
+      // Milestone 1: 6 minutes remaining (Halfway)
+      if (remaining <= 360 && remaining > 300 && !cur.milestoneHalfwaySent) {
+        cur.milestoneHalfwaySent = true;
+        await ctx.reply(
+          `🔔 <b>[HALFWAY CHECKPOINT - 6:00 LEFT]</b>\n<i>You should be on Subheading 3 or 4 now! Ensure each has 6 points with bold keywords and 1 Unique Key box!</i>`,
+          { parse_mode: "HTML" }
+        ).catch(() => {});
+      }
+
+      // Milestone 2: 2 minutes remaining (Warning)
+      if (remaining <= 120 && remaining > 60 && !cur.milestoneFinalSent) {
+        cur.milestoneFinalSent = true;
+        await ctx.reply(
+          `⚠️ <b>[FINAL 2 MINUTES WARNING - 2:00 LEFT]</b>\n<i>Wrap up your body points immediately! Draft your 4-line positive Way Forward / Conclusion now!</i>`,
+          { parse_mode: "HTML" }
+        ).catch(() => {});
+      }
+
+      // Time Expired: 0 seconds
+      if (remaining <= 0) {
+        clearInterval(cur.intervalId);
+        cur.intervalId = null;
+        cur.elapsedSeconds = cur.totalSeconds;
+        await ctx.reply(
+          `🚨 <b>PENS DOWN! EXAM TIME EXPIRED (12:00)!</b>\n\n<i>Time is up! Snap a clear photo of your written answer sheet or upload your PDF/text now for evaluation!</i>`,
+          { parse_mode: "HTML" }
+        ).catch(() => {});
+        return;
+      }
+
+      // Update timer message
+      if (cur.timerMsgId) {
+        await ctx.api.editMessageText(chatId, cur.timerMsgId, formatMockTimerCard(cur), {
+          parse_mode: "HTML",
+          reply_markup: getMockTimerKeyboard(),
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.warn("Mock timer update warning:", err.message);
+    }
+  }, 30000);
 }
 
 function formatSyllabusProgressHTML(status) {
@@ -857,9 +1119,14 @@ function registerBotHandlers(bot) {
       "Practice official 15-mark and 10-mark answers adhering strictly to the <b>Tamil Nadu Career Services 12-Rule Format</b>:",
       "• <b>Introduction:</b> Exactly 4 lines + 🔴 [CORE FOCUS BOX]",
       "• <b>Subheadings:</b> 5 to 6 subheadings with exactly 6 numbered points each",
-      "• <b>Unique Highlights:</b> 🔴 Red boxed differentiator in every subheading",
+      "• <b>Unique Highlights:</b> 💡 Standout differentiator in every subheading",
       "• <b>Conclusion:</b> Exactly 4 to 5 lines with forward-looking Way Forward",
       "• <b>Answer Submission:</b> Text message, handwritten photo, or <b>PDF document</b> (evaluated via Gemini Vision)",
+      "",
+      "⚡ <b>ADVANCED EXAM CAPABILITIES:</b>",
+      "• ⏱️ <b>12-Min Exam Simulator (/mock):</b> Real-time timer, speed tracker & milestone coaching",
+      "• 🗺️ <b>Visual Answer Blueprints (/diagram):</b> ASCII flowcharts & diagrams to draw in paper",
+      "• 🎯 <b>TN Stats & Schemes Bank (/tnstats):</b> Authoritative statistics & scheme citations",
       "",
       "<b>Step 1: Choose a General Studies Paper to begin:</b>",
     ].join("\n");
@@ -937,6 +1204,65 @@ bot.command("set", async (ctx) => {
     `✅ <b>Custom Question Saved!</b> (${marks} Marks, ~${wordsFor(marks)} words)\n\n<b>Question:</b>\n${m[2].trim()}\n\n<i>Now send your written answer (text, photo, or PDF) or tap 'Model Answer' below:</i>`,
     { parse_mode: "HTML", reply_markup: getQuestionActionKeyboard() }
   );
+});
+
+// /mock or /exam command - Start 12-Minute Real-Time Exam Simulator
+bot.command(["mock", "exam"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  const s = sessions.get(ctx.chat.id);
+  await startMockExam(ctx, s?.topic || null, s?.unitId || null, null);
+});
+
+// /tnstats, /stats, /schemes command - Tamil Nadu high-yield data & scheme bank
+bot.command(["tnstats", "stats", "schemes"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  const query = ctx.match ? ctx.match.trim() : "";
+  if (!query) {
+    await ctx.reply(
+      `🏛️ <b>TAMIL NADU POLICY & SOCIO-ECONOMIC STATS BANK</b>\n\n` +
+      `TNPSC Mains rank-holders substantiate answers with official Tamil Nadu statistics.\n` +
+      `Select a high-yield syllabus domain below or search directly:\n\n` +
+      `💡 <i>Quick Search:</i> <code>/tnstats health</code>, <code>/tnstats gsdp</code>, <code>/tnstats women</code>`,
+      {
+        parse_mode: "HTML",
+        reply_markup: getStatsCategoriesKeyboard(),
+      }
+    );
+  } else {
+    const results = searchStats(query);
+    const card = formatSearchResultsCard(query, results);
+    await ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: getStatsCategoriesKeyboard(),
+    });
+  }
+});
+
+// /diagram, /flowchart, /mindmap command - Visual answer blueprint
+bot.command(["diagram", "flowchart", "mindmap"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  const s = sessions.get(ctx.chat.id);
+  const query = ctx.match ? ctx.match.trim() : "";
+  const target = query || s?.question || (s?.topic ? `Syllabus Topic: ${s.topic}` : "Regional Disparities and Industrial Development in Tamil Nadu");
+
+  const anim = await createProgressAnimator(ctx, "VISUAL DIAGRAM & FLOWCHART DESIGNER");
+  try {
+    const diagram = await anim.track(() => llm.generateDiagram(target), {
+      text: "[2/3] Synthesizing ASCII Blueprint & Layout Guide...",
+      basePct: 40,
+      targetPct: 90,
+      details: [
+        "Analyzing structural presentation nodes...",
+        "Formatting clean ASCII box connectors & arrows...",
+        "Drafting exam paper margin positioning tips...",
+      ],
+    });
+    const card = formatModernDiagramCard({ question: target, diagram });
+    await reply(ctx, card, getPostAnswerKeyboard(s?.unitId || null));
+  } catch (err) {
+    console.error("Diagram error:", err);
+    await ctx.reply(`⚠️ Diagram generation error: ${err.message}`);
+  }
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -1149,6 +1475,107 @@ bot.callbackQuery("action:save", async (ctx) => {
   await handleSaveToNotion(ctx);
 });
 
+// Start 12-Minute Mock Exam from question card or menu
+bot.callbackQuery("action:start_mock_exam", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const s = sessions.get(ctx.chat.id);
+  await startMockExam(ctx, s?.topic || null, s?.unitId || null, s?.question || null);
+});
+
+// Start Mock Exam specifically for a chosen Unit
+bot.callbackQuery(/^mockunit:(.+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const unitId = ctx.match[1];
+  await startMockExam(ctx, null, unitId, null);
+});
+
+// Mock Exam: Submit Answer Early
+bot.callbackQuery("mock:submit_early", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const mock = activeMockExams.get(ctx.chat.id);
+  if (!mock) {
+    return ctx.reply("⚠️ No active mock exam running! Start one via /mock.", {
+      reply_markup: getPapersInlineKeyboard(),
+    });
+  }
+  if (mock.intervalId) clearInterval(mock.intervalId);
+  mock.elapsedSeconds = Math.floor((Date.now() - mock.startTime) / 1000);
+  const mins = Math.floor(mock.elapsedSeconds / 60);
+  const secs = mock.elapsedSeconds % 60;
+  const timeTakenStr = `${mins}m ${String(secs).padStart(2, "0")}s`;
+
+  await ctx.reply(
+    `⏱️ <b>EXAM TIMER STOPPED EARLY!</b>\n\n` +
+    `• Total Time Elapsed: <code>${timeTakenStr}</code> (Limit: 12:00)\n` +
+    `• Status: <i>Waiting for answer submission</i>\n\n` +
+    `📸 <b>Snap a photo of your handwritten paper or type your text now!</b>`,
+    { parse_mode: "HTML" }
+  );
+});
+
+// Mock Exam: Abort Exam
+bot.callbackQuery("mock:abort", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  cleanupMockExam(ctx.chat.id);
+  await ctx.reply("❌ <b>12-Minute Mock Exam Cancelled.</b>\nYou can resume practice anytime!", {
+    parse_mode: "HTML",
+    reply_markup: getPapersInlineKeyboard(),
+  });
+});
+
+// Visual Diagram & Flowchart Generator
+bot.callbackQuery("action:diagram", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const s = sessions.get(ctx.chat.id);
+  const target = s?.question || (s?.topic ? `Syllabus Topic: ${s.topic}` : "Industrial Development and Welfare Policy in Tamil Nadu");
+
+  const anim = await createProgressAnimator(ctx, "VISUAL DIAGRAM & FLOWCHART DESIGNER");
+  try {
+    const diagram = await anim.track(() => llm.generateDiagram(target), {
+      text: "[2/3] Synthesizing ASCII Blueprint & Layout Guide...",
+      basePct: 40,
+      targetPct: 90,
+      details: [
+        "Analyzing structural presentation nodes...",
+        "Formatting clean ASCII box connectors & arrows...",
+        "Drafting exam paper margin positioning tips...",
+      ],
+    });
+    const card = formatModernDiagramCard({ question: target, diagram });
+    await reply(ctx, card, getPostAnswerKeyboard(s?.unitId || null));
+  } catch (err) {
+    console.error("Diagram error:", err);
+    await ctx.reply(`⚠️ Diagram generation error: ${err.message}`);
+  }
+});
+
+// Tamil Nadu Stats Bank Menu
+bot.callbackQuery("action:tn_stats", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  await ctx.reply(
+    `🏛️ <b>TAMIL NADU POLICY & SOCIO-ECONOMIC STATS BANK</b>\n\n` +
+    `Select a high-yield syllabus domain below to explore authoritative statistics:`,
+    {
+      parse_mode: "HTML",
+      reply_markup: getStatsCategoriesKeyboard(),
+    }
+  );
+});
+
+// Tamil Nadu Stats: View specific Category
+bot.callbackQuery(/^stats:cat:(.+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const catKey = ctx.match[1];
+  const card = formatCategoryCard(catKey);
+  if (!card) {
+    return ctx.reply("⚠️ Category not found.");
+  }
+  await ctx.reply(card, {
+    parse_mode: "HTML",
+    reply_markup: getStatsCategoriesKeyboard(),
+  });
+});
+
 // ─────────────────────────────────────────────────────────────
 // MESSAGE HANDLERS (USER TYPES TOPIC OR SUBMITS ANSWER)
 // ─────────────────────────────────────────────────────────────
@@ -1336,6 +1763,7 @@ bot.on("message:text", async (ctx) => {
     });
   }
 
+  const mockTiming = extractMockTiming(ctx.chat.id);
   const anim = await createProgressAnimator(ctx, "ANSWER EVALUATOR & NOTION SYNC");
   try {
     await anim.step("📝 [1/3] Parsing Submitted Text Answer...", 30, "Analyzing structure & word count...");
@@ -1363,7 +1791,7 @@ bot.on("message:text", async (ctx) => {
     await anim.step("📓 [3/3] Saving Marks & Feedback to Notion...", 95, "Syncing to Unit folder...");
     await anim.delete();
 
-    const card = formatModernEvaluationCard({ marks: s.marks, evaluation: out, submissionType: "Text Answer", notionUrl });
+    const card = formatModernEvaluationCard({ marks: s.marks, evaluation: out, submissionType: "Text Answer", notionUrl, mockTiming });
     await reply(ctx, card, getPostAnswerKeyboard(s.unitId));
   } catch (err) {
     await anim.delete();
@@ -1381,6 +1809,7 @@ bot.on("message:photo", async (ctx) => {
     });
   }
 
+  const mockTiming = extractMockTiming(ctx.chat.id);
   const anim = await createProgressAnimator(ctx, "HANDWRITTEN OCR & EVALUATION");
   try {
     await anim.step("📸 [1/3] Downloading Handwritten Photo...", 25, "Preparing image for Gemini Vision...");
@@ -1413,7 +1842,7 @@ bot.on("message:photo", async (ctx) => {
     }
 
     await anim.delete();
-    const card = formatModernEvaluationCard({ marks: s.marks, evaluation: out, submissionType: "Handwritten Paper (Vision OCR)", notionUrl });
+    const card = formatModernEvaluationCard({ marks: s.marks, evaluation: out, submissionType: "Handwritten Paper (Vision OCR)", notionUrl, mockTiming });
     await reply(ctx, card, getPostAnswerKeyboard(s.unitId));
   } catch (err) {
     await anim.delete();
@@ -1448,6 +1877,7 @@ bot.on("message:document", async (ctx) => {
     return ctx.reply("⚠️ The file exceeds Telegram's 20MB download limit. Please compress your PDF and try again.");
   }
 
+  const mockTiming = extractMockTiming(ctx.chat.id);
   const anim = await createProgressAnimator(ctx, "PDF OCR & EVALUATION ENGINE");
   try {
     await anim.step(`📄 [1/3] Ingesting "${fileName}"...`, 25, "Streaming multi-page PDF document...");
@@ -1484,7 +1914,7 @@ bot.on("message:document", async (ctx) => {
     }
 
     await anim.delete();
-    const card = formatModernEvaluationCard({ marks: s.marks, evaluation: out, submissionType: `PDF Document (${fileName})`, notionUrl });
+    const card = formatModernEvaluationCard({ marks: s.marks, evaluation: out, submissionType: isPdf ? `PDF Document (${fileName})` : "Document Image", notionUrl, mockTiming });
     await reply(ctx, card, getPostAnswerKeyboard(s.unitId));
   } catch (err) {
     await anim.delete();
@@ -1902,6 +2332,9 @@ if (bot) {
 
   bot.api.setMyCommands([
     { command: "start", description: "Start practice & view Health Meter" },
+    { command: "mock", description: "⏱️ 12-Minute Real-Time Exam Simulator" },
+    { command: "diagram", description: "🗺️ Visual answer diagram & flowchart" },
+    { command: "tnstats", description: "🎯 Tamil Nadu official stats & schemes" },
     { command: "pyq", description: "Instant PYQ + 12-rule answer generation" },
     { command: "quick", description: "Rapid syllabus question generation" },
     { command: "tomorrow", description: "View tomorrow's scheduled topic (9 AM)" },

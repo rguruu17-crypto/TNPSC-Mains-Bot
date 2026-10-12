@@ -2,7 +2,14 @@ require("dotenv").config();
 const { GoogleGenAI } = require("@google/genai");
 const { MODEL_SYSTEM, EVAL_SYSTEM, QUESTION_SYSTEM, PYQ_SYSTEM } = require("./prompts");
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+function updateGeminiKey(newKey) {
+  process.env.GEMINI_API_KEY = newKey;
+  ai = new GoogleGenAI({ apiKey: newKey });
+  console.log(`[LLM Engine] Gemini AI Key updated in-memory.`);
+}
+
 const CANDIDATE_MODELS = [
   process.env.GEMINI_MODEL,
   "gemini-flash-latest",
@@ -90,7 +97,7 @@ function evaluate(question, marks, words, answer) {
   return ask(EVAL_SYSTEM, contents);
 }
 
-module.exports = { generateQuestion, generatePYQ, modelAnswer, evaluate };
+module.exports = { generateQuestion, generatePYQ, modelAnswer, evaluate, updateGeminiKey };
 
 if (require.main === module) {
   (async () => {

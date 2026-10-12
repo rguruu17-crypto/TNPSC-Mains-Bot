@@ -1,8 +1,22 @@
 const { Client } = require("@notionhq/client");
 
-const token = process.env.NOTION_TOKEN || process.env.NOTION_API_KEY;
-const notion = new Client({ auth: token });
-const DATABASE_ID = process.env.NOTION_DATABASE_ID || process.env.NOTION_PAGE_ID;
+let token = process.env.NOTION_TOKEN || process.env.NOTION_API_KEY;
+let notion = new Client({ auth: token });
+let DATABASE_ID = process.env.NOTION_DATABASE_ID || process.env.NOTION_PAGE_ID;
+
+function updateNotionConfig({ newToken, newDatabaseId } = {}) {
+  if (newToken) {
+    token = newToken;
+    process.env.NOTION_TOKEN = newToken;
+    notion = new Client({ auth: newToken });
+    console.log(`[Notion Engine] Notion Client updated with new token.`);
+  }
+  if (newDatabaseId) {
+    DATABASE_ID = newDatabaseId;
+    process.env.NOTION_DATABASE_ID = newDatabaseId;
+    console.log(`[Notion Engine] Notion Root Database/Page ID updated: ${newDatabaseId}`);
+  }
+}
 
 // Official Unit Page IDs created inside the user's Notion workspace
 const UNIT_PAGE_IDS = {
@@ -555,4 +569,5 @@ module.exports = {
   parseRichTextWithYellowKeywords,
   UNIT_PAGE_IDS,
   UNIT_METADATA,
+  updateNotionConfig,
 };

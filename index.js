@@ -14,6 +14,14 @@ const {
   getSchedulerStatus,
   getTopicPipeline,
 } = require("./daily_scheduler");
+const {
+  maskKey,
+  updateEnvFile,
+  checkGeminiHealth,
+  checkNotionHealth,
+  checkAllApiHealth,
+  formatApiSettingsCard,
+} = require("./api_manager");
 
 // Initialize process-level crash prevention guard
 setupProcessGuard();
@@ -266,9 +274,23 @@ function getPapersInlineKeyboard() {
     .row()
     .text("⚡ Auto-Generate for All 9 Units (GS I, II & III)", "action:auto_all_papers")
     .row()
-    .text("📊 Health Meter & Diagnostics", "action:view_status");
+    .text("📊 Health Meter", "action:view_status")
+    .text("⚙️ API Keys & Updater", "action:api_settings");
 
   return kb;
+}
+
+// API Credentials & Health Settings Keyboard
+function getApiSettingsKeyboard() {
+  return new InlineKeyboard()
+    .text("🩺 Run Live Health Check", "action:check_api_health")
+    .row()
+    .text("🔑 Update Gemini API Key", "action:update_gemini_key")
+    .text("📓 Update Notion Token", "action:update_notion_key")
+    .row()
+    .text("📄 Update Notion Root Page ID", "action:update_notion_db")
+    .row()
+    .text("⬅️ Back to Main Menu", "action:pick_topic");
 }
 
 // Step 2: Select Unit
@@ -1144,6 +1166,168 @@ bot.on("message:text", async (ctx) => {
     return handleAutoGenerateQA(ctx, fullTopic, 15, st.unitId, false);
   }
 
+  // 1B. Handle Gemini API Key update input
+  if (st && st.state === "WAITING_FOR_GEMINI_KEY") {
+    await ctx.deleteMessage().catch(() => {});
+    userState.delete(ctx.chat.id);
+    const enteredKey = ctx.message.text.trim();
+
+    const anim = await createProgressAnimator(ctx, "GEMINI KEY VERIFIER");
+    try {
+      await anim.step("🔍 [1/2] Testing live connection to Gemini...", 45, "Running ping against Google AI API...");
+      const health = await checkGeminiHealth(enteredKey);
+
+      if (health.ok) {
+        await anim.step("💾 [2/2] Saving to backend .env file...", 90, "Updating disk & memory client...");
+        updateEnvFile("GEMINI_API_KEY", enteredKey);
+        await anim.delete();
+
+        const successText = [
+          `╔════════════════════════════════════════╗`,
+          `║  ✅ <b>GEMINI API KEY UPDATED SUCCESSFULLY</b>`,
+          `╚════════════════════════════════════════╝`,
+          `🔑 <b>Active Key:</b> <code>${maskKey(enteredKey)}</code>`,
+          `🟢 <b>Health:</b> Verified Operational (<code>${health.latency}ms</code> • ${health.model})`,
+          `💾 <b>Backend File:</b> Written to <code>.env</code> on disk`,
+          `🚀 <b>AI Engine:</b> Client re-initialized in-memory`,
+          ``,
+          `<i>You can now practice questions and generate 12-rule model answers immediately!</i>`,
+        ].join("\n");
+
+        return ctx.reply(successText, {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("⚡ Generate Practice Question", "action:pyq_topic")
+            .row()
+            .text("⚙️ View API Health", "action:api_settings")
+            .text("📚 Main Menu", "action:pick_topic"),
+        });
+      } else {
+        await anim.delete();
+        const failText = [
+          `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+          `┃  ❌ <b>GEMINI KEY VERIFICATION FAILED</b>`,
+          `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+          `⚠️ <b>Issue:</b> <i>${health.error}</i>`,
+          `🛡️ <b>Safety Guard:</b> Existing <code>.env</code> file was NOT overwritten.`,
+          ``,
+          `👉 <i>Get a fresh free API key from Google AI Studio and tap below to retry:</i>`,
+          `https://aistudio.google.com/app/apikey`,
+        ].join("\n");
+
+        return ctx.reply(failText, {
+          parse_mode: "HTML",
+          disable_web_page_preview: false,
+          reply_markup: new InlineKeyboard()
+            .text("🔁 Try Again", "action:update_gemini_key")
+            .text("⬅️ Cancel", "action:api_settings"),
+        });
+      }
+    } catch (err) {
+      await anim.delete();
+      return ctx.reply(`⚠️ Verification error: ${err.message}`);
+    }
+  }
+
+  // 1C. Handle Notion Token update input
+  if (st && st.state === "WAITING_FOR_NOTION_TOKEN") {
+    await ctx.deleteMessage().catch(() => {});
+    userState.delete(ctx.chat.id);
+    const enteredToken = ctx.message.text.trim();
+
+    const anim = await createProgressAnimator(ctx, "NOTION TOKEN VERIFIER");
+    try {
+      await anim.step("🔍 [1/2] Verifying Notion Integration...", 45, "Testing users.me endpoint...");
+      const health = await checkNotionHealth(enteredToken);
+
+      if (health.ok) {
+        await anim.step("💾 [2/2] Saving to backend .env file...", 90, "Persisting token to disk...");
+        updateEnvFile("NOTION_TOKEN", enteredToken);
+        await anim.delete();
+
+        const successText = [
+          `╔════════════════════════════════════════╗`,
+          `║  ✅ <b>NOTION TOKEN UPDATED SUCCESSFULLY</b>`,
+          `╚════════════════════════════════════════╝`,
+          `📓 <b>Active Token:</b> <code>${maskKey(enteredToken)}</code>`,
+          `🟢 <b>Health:</b> Connected (<code>${health.latency}ms</code> • Bot: <i>${health.botName}</i>)`,
+          `💾 <b>Backend File:</b> Written to <code>.env</code> on disk`,
+          `🚀 <b>Notion Client:</b> In-memory client refreshed`,
+          ``,
+          `<i>All questions and 12-rule model answers will sync directly to Notion!</i>`,
+        ].join("\n");
+
+        return ctx.reply(successText, {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("⚙️ View API Health", "action:api_settings")
+            .text("📚 Main Menu", "action:pick_topic"),
+        });
+      } else {
+        await anim.delete();
+        const failText = [
+          `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+          `┃  ❌ <b>NOTION TOKEN VERIFICATION FAILED</b>`,
+          `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+          `⚠️ <b>Issue:</b> <i>${health.error}</i>`,
+          `🛡️ <b>Safety Guard:</b> Existing <code>.env</code> file was NOT overwritten.`,
+          ``,
+          `<i>Make sure you created an Internal Integration Token (starts with ntn_ or secret_).</i>`,
+        ].join("\n");
+
+        return ctx.reply(failText, {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("🔁 Try Again", "action:update_notion_key")
+            .text("⬅️ Cancel", "action:api_settings"),
+        });
+      }
+    } catch (err) {
+      await anim.delete();
+      return ctx.reply(`⚠️ Verification error: ${err.message}`);
+    }
+  }
+
+  // 1D. Handle Notion Root Database/Page ID update input
+  if (st && st.state === "WAITING_FOR_NOTION_DB") {
+    await ctx.deleteMessage().catch(() => {});
+    userState.delete(ctx.chat.id);
+    let enteredDb = ctx.message.text.trim();
+    const urlMatch = enteredDb.match(/([a-f0-9]{32})/i) || enteredDb.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+    if (urlMatch) {
+      enteredDb = urlMatch[1].replace(/-/g, "");
+    }
+
+    const anim = await createProgressAnimator(ctx, "NOTION PAGE VERIFIER");
+    try {
+      await anim.step("🔍 [1/2] Checking Root Page Access in Notion...", 45);
+      const health = await checkNotionHealth(null, enteredDb);
+
+      await anim.step("💾 [2/2] Saving to backend .env file...", 90);
+      updateEnvFile("NOTION_DATABASE_ID", enteredDb);
+      await anim.delete();
+
+      const successText = [
+        `╔════════════════════════════════════════╗`,
+        `║  ✅ <b>NOTION ROOT PAGE ID UPDATED</b>`,
+        `╚════════════════════════════════════════╝`,
+        `📄 <b>Root Page ID:</b> <code>${maskKey(enteredDb, 8, 4)}</code>`,
+        `🟢 <b>Page Access:</b> ${health.dbAccessible ? "Verified Accessible" : "Saved (Ensure page is shared with bot)"}`,
+        `💾 <b>Backend File:</b> Saved into <code>.env</code> on disk`,
+      ].join("\n");
+
+      return ctx.reply(successText, {
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard()
+          .text("⚙️ View API Health", "action:api_settings")
+          .text("📚 Main Menu", "action:pick_topic"),
+      });
+    } catch (err) {
+      await anim.delete();
+      return ctx.reply(`⚠️ Update error: ${err.message}`);
+    }
+  }
+
   // 2. If student has an active question, evaluate their submitted answer
   const s = sessions.get(ctx.chat.id);
   if (!s) {
@@ -1414,7 +1598,8 @@ bot.command(["status", "scheduler", "health"], async (ctx) => {
       .text("➡️ Tomorrow's Topic Details", "action:tomorrow_preview")
       .text("⚡ Run Daily Job Now", "action:run_daily_now")
       .row()
-      .text("📚 Choose Paper", "action:pick_topic"),
+      .text("📚 Choose Paper", "action:pick_topic")
+      .text("⚙️ API Keys & Updater", "action:api_settings"),
   });
 });
 
@@ -1555,6 +1740,148 @@ bot.callbackQuery("action:run_daily_now", async (ctx) => {
     await ctx.reply(`⚠️ Error: ${err.message}`);
   }
 });
+
+// ─────────────────────────────────────────────────────────────
+// API KEY UPDATER & LIVE HEALTH CHECK HANDLERS
+// ─────────────────────────────────────────────────────────────
+
+// /keys, /api, /settings command
+bot.command(["keys", "api", "settings", "updater"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  const anim = await createProgressAnimator(ctx, "API HEALTH AUDIT");
+  await anim.step("🔍 [1/2] Auditing Google Gemini API...", 40, "Checking quota & latency...");
+  const gemini = await checkGeminiHealth();
+  await anim.step("📓 [2/2] Auditing Notion Workspace...", 80, "Checking bot user & page access...");
+  const notion = await checkNotionHealth();
+  await anim.delete();
+
+  const card = formatApiSettingsCard({ gemini, notion });
+  await ctx.reply(card, {
+    parse_mode: "HTML",
+    reply_markup: getApiSettingsKeyboard(),
+  });
+});
+
+bot.callbackQuery("action:api_settings", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  userState.delete(ctx.chat.id);
+  const anim = await createProgressAnimator(ctx, "API HEALTH AUDIT");
+  await anim.step("🔍 [1/2] Auditing Google Gemini API...", 40, "Checking quota & latency...");
+  const gemini = await checkGeminiHealth();
+  await anim.step("📓 [2/2] Auditing Notion Workspace...", 80, "Checking bot user & page access...");
+  const notion = await checkNotionHealth();
+  await anim.delete();
+
+  const card = formatApiSettingsCard({ gemini, notion });
+  await ctx.reply(card, {
+    parse_mode: "HTML",
+    reply_markup: getApiSettingsKeyboard(),
+  });
+});
+
+bot.callbackQuery("action:check_api_health", async (ctx) => {
+  await ctx.answerCallbackQuery({ text: "Testing API health live..." }).catch(() => {});
+  const anim = await createProgressAnimator(ctx, "LIVE HEALTH AUDIT");
+  await anim.step("🔍 [1/2] Pinging Google Gemini AI...", 45, "Testing response time...");
+  const gemini = await checkGeminiHealth();
+  await anim.step("📓 [2/2] Pinging Notion Workspace API...", 85, "Testing token & page...");
+  const notion = await checkNotionHealth();
+  await anim.delete();
+
+  const card = formatApiSettingsCard({ gemini, notion });
+  await ctx.reply(card, {
+    parse_mode: "HTML",
+    reply_markup: getApiSettingsKeyboard(),
+  });
+});
+
+bot.callbackQuery("action:update_gemini_key", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  userState.set(ctx.chat.id, { state: "WAITING_FOR_GEMINI_KEY" });
+  const promptCard = [
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  🔑 <b>UPDATE GEMINI API KEY</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `Current Key: <code>${maskKey(process.env.GEMINI_API_KEY)}</code>`,
+    ``,
+    `✍️ <b>Please paste your new Google Gemini API Key:</b>`,
+    `<i>Get your free key from Google AI Studio:</i>`,
+    `https://aistudio.google.com/app/apikey`,
+    ``,
+    `🔒 <b>Security & Auto-Save:</b>`,
+    `• Your key is tested live against Gemini API before saving`,
+    `• Successfully verified keys are written to <code>.env</code> on disk`,
+    `• Your Telegram message with the key is instantly deleted for safety`,
+    ``,
+    `<i>Tap Cancel below to abort:</i>`,
+  ].join("\n");
+
+  await ctx.reply(promptCard, {
+    parse_mode: "HTML",
+    disable_web_page_preview: false,
+    reply_markup: new InlineKeyboard().text("❌ Cancel", "action:cancel_key_update"),
+  });
+});
+
+bot.callbackQuery("action:update_notion_key", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  userState.set(ctx.chat.id, { state: "WAITING_FOR_NOTION_TOKEN" });
+  const promptCard = [
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  📓 <b>UPDATE NOTION TOKEN</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `Current Token: <code>${maskKey(process.env.NOTION_TOKEN || process.env.NOTION_API_KEY)}</code>`,
+    ``,
+    `✍️ <b>Please paste your Notion Internal Integration Token:</b>`,
+    `<i>Starts with <code>ntn_...</code> or <code>secret_...</code> from Notion Developer Portal:</i>`,
+    `https://www.notion.so/profile/integrations`,
+    ``,
+    `🔒 <b>Security & Auto-Save:</b>`,
+    `• Token is verified live via Notion API (<code>users.me</code>)`,
+    `• Saved automatically into backend <code>.env</code> file`,
+    `• Your Telegram message will be deleted immediately for privacy`,
+    ``,
+    `<i>Tap Cancel below to abort:</i>`,
+  ].join("\n");
+
+  await ctx.reply(promptCard, {
+    parse_mode: "HTML",
+    disable_web_page_preview: false,
+    reply_markup: new InlineKeyboard().text("❌ Cancel", "action:cancel_key_update"),
+  });
+});
+
+bot.callbackQuery("action:update_notion_db", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  userState.set(ctx.chat.id, { state: "WAITING_FOR_NOTION_DB" });
+  const promptCard = [
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  📄 <b>UPDATE NOTION ROOT PAGE ID</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `Current Root Page ID: <code>${maskKey(process.env.NOTION_DATABASE_ID, 8, 4)}</code>`,
+    ``,
+    `✍️ <b>Please paste your Notion Root Page URL or 32-digit ID:</b>`,
+    `<i>Example:</i> <code>3f6bdc8a71e0800e8640e6b0ee0c3d60</code>`,
+    ``,
+    `📌 <i>Important: Ensure you invited your integration bot to this Notion page via Page Settings ➔ Connections.</i>`,
+    ``,
+    `<i>Tap Cancel below to abort:</i>`,
+  ].join("\n");
+
+  await ctx.reply(promptCard, {
+    parse_mode: "HTML",
+    reply_markup: new InlineKeyboard().text("❌ Cancel", "action:cancel_key_update"),
+  });
+});
+
+bot.callbackQuery("action:cancel_key_update", async (ctx) => {
+  await ctx.answerCallbackQuery({ text: "Update cancelled" }).catch(() => {});
+  userState.delete(ctx.chat.id);
+  await ctx.reply("❌ <b>Key update cancelled.</b> Existing configuration retained.", {
+    parse_mode: "HTML",
+    reply_markup: getPapersInlineKeyboard(),
+  });
+});
 } // end registerBotHandlers
 
 // ─────────────────────────────────────────────────────────────
@@ -1580,6 +1907,7 @@ if (bot) {
     { command: "tomorrow", description: "View tomorrow's scheduled topic (9 AM)" },
     { command: "daily", description: "Run/view today's 9 AM PYQ questions" },
     { command: "status", description: "System Health Meter & syllabus progress" },
+    { command: "keys", description: "API credentials updater & live health" },
     { command: "subscribe", description: "Subscribe to 9 AM daily alerts" },
     { command: "menu", description: "Open syllabus navigation" },
     { command: "auto", description: "Auto-generate Q&A and save to Notion" },

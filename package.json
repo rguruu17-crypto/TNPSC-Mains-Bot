@@ -1,0 +1,24 @@
+{
+  "name": "tnpsc-mains-bot",
+  "version": "1.1.0",
+  "description": "Telegram bot for TNPSC Mains answer-writing practice (Gemini + Notion)",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "watch": "node supervisor.js",
+    "daily": "node -e \"require('./daily_scheduler').runDailyPYQJob({ force: true })\"",
+    "generate": "node auto_generate.js",
+    "test:llm": "node llm.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "@notionhq/client": "^2.2.15",
+    "dotenv": "^16.4.5",
+    "grammy": "^1.30.0",
+    "node-cron": "^4.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -346,23 +346,153 @@ async function withTyping(ctx, fn) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// CORE ACTION HANDLERS (AUTOMATIC Q&A GENERATION + NOTION)
+// TELEGRAM PROGRESS ANIMATOR & MODERN CARD DESIGN SYSTEM
 // ─────────────────────────────────────────────────────────────
 
-// Handler: Auto-generate BOTH Question and 12-Rule Model Answer, and save directly to Notion
+async function createProgressAnimator(ctx, title = "TNPSC MAINS AI ENGINE") {
+  let msg = null;
+  try {
+    msg = await ctx.reply(
+      `⚡ <b>${title}</b>\n━━━━━━━━━━━━━━━━━━━━━━\n⏳ <b>Initializing AI Engine...</b>\n<code>[▱▱▱▱▱▱▱▱▱▱] 0%</code>\n<i>Connecting to Gemini AI Core...</i>`,
+      { parse_mode: "HTML" }
+    );
+  } catch (err) {
+    console.warn("Could not create animation message:", err.message);
+  }
+
+  const renderBar = (pct) => {
+    const filled = Math.min(10, Math.max(0, Math.round((pct / 100) * 10)));
+    return "▰".repeat(filled) + "▱".repeat(10 - filled);
+  };
+
+  return {
+    async step(text, pct, detail = "") {
+      if (!msg) return;
+      const bar = renderBar(pct);
+      const content = [
+        `⚡ <b>${title}</b>`,
+        `━━━━━━━━━━━━━━━━━━━━━━`,
+        `${text}`,
+        `<code>[${bar}] ${pct}%</code>`,
+        detail ? `<i>${detail}</i>` : ``,
+      ].filter(Boolean).join("\n");
+
+      try {
+        await ctx.api.editMessageText(ctx.chat.id, msg.message_id, content, {
+          parse_mode: "HTML",
+        });
+      } catch (_) {
+        // Safe ignore identical edits or rate limits
+      }
+    },
+    async delete() {
+      if (!msg) return;
+      try {
+        await ctx.api.deleteMessage(ctx.chat.id, msg.message_id);
+      } catch (_) {}
+    },
+  };
+}
+
+function formatModernQuestionCard({ question, marks, words, topic, unitTitle, isPYQ = false, questionNumber = 1 }) {
+  const cleanQ = question.replace(/<[^>]+>/g, "").trim();
+  const badge = isPYQ ? "🏆 OFFICIAL TNPSC MAINS PYQ" : "🎯 HIGH-YIELD PRACTICE QUESTION";
+
+  return [
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  🏛️ <b>TNPSC GROUP-1 MAINS SPECIALIST</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `🏷️ <b>Category:</b> <code>${badge}</code>`,
+    `📚 <b>Paper & Unit:</b> <i>${unitTitle}</i>`,
+    `🎯 <b>Syllabus Topic:</b> <b>${topic}</b>`,
+    `⚖️ <b>Weightage:</b> <code>${marks} MARKS • ~${words} WORDS</code>`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `📌 <b>QUESTION - ${questionNumber}:</b>`,
+    `<b>${cleanQ}</b>`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `⚡ <i>Official Tamil Nadu Career Services 12-Rule Model Answer below:</i>`,
+  ].join("\n");
+}
+
+function formatModernNotionSyncBanner({ topic, notionUrl, questionNumber = 1 }) {
+  return [
+    `╔════════════════════════════════════════╗`,
+    `║  ✅ <b>SAVED TO NOTION WORKSPACE</b>`,
+    `╚════════════════════════════════════════╝`,
+    `📄 <b>Topic Page:</b> <i>"${topic}"</i>`,
+    `🔢 <b>Continuity:</b> 📌 <b>Question - ${questionNumber}</b>`,
+    `🎨 <b>12 Rules:</b> <i>Orange Callouts • Yellow Highlighted Points • Purple Value Box</i>`,
+    ``,
+    `🔗 <a href="${notionUrl}"><b>👉 Open Interactive Page in Notion ↗</b></a>`,
+  ].join("\n");
+}
+
+function formatModernDailySuiteCard(res) {
+  return [
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  ⏰ <b>TNPSC MAINS DAILY 9:00 AM SUITE</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `🎯 <b>Topic:</b> <b>${res.topic}</b>`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `📌 <b>QUESTION 1 (PYQ):</b>`,
+    `<i>${res.question1 || res.question}</i>`,
+    ``,
+    `📌 <b>QUESTION 2 (PYQ):</b>`,
+    `<i>${res.question2}</i>`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    ``,
+    `╔════════════════════════════════════════╗`,
+    `║  ✅ <b>SAVED TO NOTION WORKSPACE</b>`,
+    `╚════════════════════════════════════════╝`,
+    `📄 <b>Topic Page:</b> <i>"${res.topic}"</i>`,
+    `🔢 <b>Contains:</b> 📌 <b>Question - 1</b> & 📌 <b>Question - 2</b> with complete 12-Rule Model Answers`,
+    ``,
+    `🔗 <a href="${res.notionUrl}"><b>👉 Open Topic Page in Notion ↗</b></a>`,
+    ``,
+    `➡️ <i>Tomorrow's 09:00 AM Topic: <b>${res.nextTopic}</b></i>`,
+  ].join("\n");
+}
+
+function formatModernEvaluationCard({ marks, evaluation, submissionType = "Text Answer", notionUrl = null }) {
+  return [
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  ⚖️ <b>TNPSC 12-RULE EVALUATION REPORT</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `📝 <b>Submission Type:</b> <code>${submissionType}</code>`,
+    `⚖️ <b>Evaluated Weightage:</b> <code>${marks} MARKS</code>`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    ``,
+    evaluation,
+    ``,
+    notionUrl ? formatModernNotionSyncBanner({ topic: "Student Answer Evaluation", notionUrl, questionNumber: 1 }) : ``,
+  ].filter(Boolean).join("\n");
+}
+
+// ─────────────────────────────────────────────────────────────
+// CORE ACTION HANDLERS (ANIMATED Q&A GENERATION + NOTION)
+// ─────────────────────────────────────────────────────────────
+
+// Handler: Auto-generate BOTH Question and 12-Rule Model Answer, and save directly to Notion with Animation
 async function handleAutoGenerateQA(ctx, topic, marks = 15, unitId = null, isPYQ = false) {
-  await withTyping(ctx, async () => {
-    // 1. Generate Question or PYQ
+  const anim = await createProgressAnimator(ctx, isPYQ ? "TNPSC PYQ GENERATOR" : "TNPSC Q&A GENERATOR");
+
+  try {
+    await anim.step("🔍 [1/3] Scanning Syllabus & PYQ Vault...", 25, `Analyzing "${topic}"...`);
+
     const q = isPYQ
       ? await llm.generatePYQ(topic, marks)
       : await llm.generateQuestion(topic, marks);
 
     const words = wordsFor(marks);
 
-    // 2. Automatically generate 12-Rule Model Answer
+    await anim.step("🧠 [2/3] Generating 12-Rule Model Answer with Gemini...", 65, "Architecting Current Affairs & Unique Value boxes...");
+
     const out = await llm.modelAnswer(q, marks, words);
 
-    // 3. Automatically save directly into Notion under the Topic Page
+    await anim.step("📓 [3/3] Saving into Notion Topic Hierarchy...", 92, "Applying callout boxes & yellow highlights...");
+
     let notionUrl = null;
     let notionPageId = null;
     let res = null;
@@ -395,32 +525,40 @@ async function handleAutoGenerateQA(ctx, topic, marks = 15, unitId = null, isPYQ
 
     const found = unitId ? findUnitById(unitId) : null;
     const unitTitle = found ? `${found.paper.paperTitle} ➔ ${found.unit.shortName}` : topic;
-    const cleanQ = q.replace(/<[^>]+>/g, "").trim();
 
-    // Send Part 1: Question
-    const qMessage = [
-      `<b>📌 TNPSC Mains Practice Question (${marks} Marks, ~${words} words)</b>`,
-      `<i>🏛️ ${unitTitle}</i>`,
-      `<i>✍️ Topic: ${topic}</i>`,
-      "",
-      `<b>Question:</b>`,
-      q,
-      "",
-      `⚡ <i>Official 12-Rule Model Answer automatically generated below:</i>`,
-    ].join("\n");
-    await ctx.reply(qMessage, { parse_mode: "HTML" });
+    await anim.delete();
 
-    // Send Part 2: Model Answer + Notion Link
+    // Part 1: Modern Question Card
+    const qCard = formatModernQuestionCard({
+      question: q,
+      marks,
+      words,
+      topic: res?.topicName || topic,
+      unitTitle,
+      isPYQ,
+      questionNumber: res?.questionNumber || 1,
+    });
+    await ctx.reply(qCard, { parse_mode: "HTML" });
+
+    // Part 2: Model Answer + Notion Banner
     let footer = "";
     if (notionUrl) {
-      footer = `\n\n✅ <b>Automatically Saved into Notion!</b>\n📄 <b>Topic Page:</b> <i>"${res?.topicName || topic}"</i>\n🔗 <a href="${notionUrl}">Open in Notion Unit Page</a>\n\n👉 <i>You can now write your answer on paper and upload as a Photo or PDF for evaluation, or select next topic below:</i>`;
+      footer = "\n\n" + formatModernNotionSyncBanner({
+        topic: res?.topicName || topic,
+        notionUrl,
+        questionNumber: res?.questionNumber || 1,
+      }) + "\n👉 <i>You can now submit your written answer as Text, Photo, or PDF for Gemini evaluation:</i>";
     }
 
-    await reply(ctx, `<b>🎯 Model Answer (12-Rule Architecture):</b>\n\n${out}${footer}`, getPostAnswerKeyboard(unitId));
-  });
+    await reply(ctx, `<b>🎯 MODEL ANSWER (12-RULE ARCHITECTURE):</b>\n\n${out}${footer}`, getPostAnswerKeyboard(unitId));
+  } catch (err) {
+    await anim.delete();
+    console.error("handleAutoGenerateQA error:", err);
+    await ctx.reply(`⚠️ ${err.message || "Failed to generate Q&A"}`);
+  }
 }
 
-// Handler: Model Answer manually requested
+// Handler: Model Answer manually requested with Animation
 async function handleModelAnswer(ctx) {
   const s = sessions.get(ctx.chat.id);
   if (!s) {
@@ -432,10 +570,14 @@ async function handleModelAnswer(ctx) {
     let footer = s.notionUrl ? `\n\n🔗 <a href="${s.notionUrl}">Open in Notion Unit Page</a>` : "";
     return reply(ctx, `<b>🎯 Model Answer (12-Rule Format):</b>\n\n${s.modelAnswer}${footer}`, getPostAnswerKeyboard(s.unitId));
   }
-  await withTyping(ctx, async () => {
+
+  const anim = await createProgressAnimator(ctx, "12-RULE MODEL ANSWER ARCHITECT");
+  try {
+    await anim.step("🧠 [1/2] Drafting Model Answer with Gemini AI...", 50, "Generating Current Affairs callout & unique key boxes...");
     const out = await llm.modelAnswer(s.question, s.marks, s.words);
     s.modelAnswer = out;
 
+    await anim.step("📓 [2/2] Auto-saving Model Answer to Notion...", 90, "Structuring page blocks...");
     let notionUrl = s.notionUrl;
     try {
       if (!s.notionPageId) {
@@ -448,12 +590,16 @@ async function handleModelAnswer(ctx) {
       console.error("Auto-save to Notion error:", err);
     }
 
-    let footer = notionUrl ? `\n\n✅ <b>Saved to Notion!</b>\n🔗 <a href="${notionUrl}">Open in Notion Unit Page</a>` : "";
-    await reply(ctx, `<b>🎯 Model Answer (12-Rule Format):</b>\n\n${out}${footer}`, getPostAnswerKeyboard(s.unitId));
-  });
+    await anim.delete();
+    let footer = notionUrl ? `\n\n` + formatModernNotionSyncBanner({ topic: s.topic, notionUrl, questionNumber: 1 }) : "";
+    await reply(ctx, `<b>🎯 MODEL ANSWER (12-RULE FORMAT):</b>\n\n${out}${footer}`, getPostAnswerKeyboard(s.unitId));
+  } catch (err) {
+    await anim.delete();
+    await ctx.reply(`⚠️ Error: ${err.message}`);
+  }
 }
 
-// Handler: Save to Notion manually requested
+// Handler: Save to Notion manually requested with Animation
 async function handleSaveToNotion(ctx) {
   const s = sessions.get(ctx.chat.id);
   if (!s) {
@@ -462,21 +608,31 @@ async function handleSaveToNotion(ctx) {
     });
   }
   if (s.notionUrl) {
-    return ctx.reply(`✅ <b>Already Saved to Notion!</b>\n\n🔗 <a href="${s.notionUrl}">Open in Notion Unit Page</a>`, {
+    return ctx.reply(formatModernNotionSyncBanner({ topic: s.topic, notionUrl: s.notionUrl, questionNumber: 1 }), {
       parse_mode: "HTML",
       reply_markup: getPostAnswerKeyboard(s.unitId),
     });
   }
-  await withTyping(ctx, async () => {
+
+  const anim = await createProgressAnimator(ctx, "NOTION SYNC ENGINE");
+  try {
+    await anim.step("📓 [1/2] Resolving Notion Hierarchy...", 50, "Matching Unit & Topic page...");
     const res = await saveSession(s);
     const url = res.url || res.toString();
     s.notionUrl = url;
     s.notionPageId = res.id;
-    await ctx.reply(`✅ <b>Successfully Saved to Notion!</b>\n\n🔗 <a href="${url}">Open in Notion Database</a>`, {
+
+    await anim.step("🎨 [2/2] Writing Formatted Blocks...", 95, "Rendering yellow highlights & callout boxes...");
+    await anim.delete();
+
+    await ctx.reply(formatModernNotionSyncBanner({ topic: res?.topicName || s.topic, notionUrl: url, questionNumber: res?.questionNumber || 1 }), {
       parse_mode: "HTML",
       reply_markup: getPostAnswerKeyboard(s.unitId),
     });
-  });
+  } catch (err) {
+    await anim.delete();
+    await ctx.reply(`⚠️ Error saving to Notion: ${err.message}`);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -584,9 +740,13 @@ bot.callbackQuery(/^paper:(.+)$/, async (ctx) => {
 
   userState.delete(ctx.chat.id);
   const text = [
-    `📖 <b>${paper.paperTitle} (${paper.paperCode})</b>`,
-    "",
-    "<b>Step 2: Select a Unit:</b>",
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  📖 <b>${paper.paperTitle.toUpperCase()}</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `🏷️ <b>Paper Code:</b> <code>${paper.paperCode}</code>`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `<b>Step 2: Select a Unit below to practice:</b>`,
   ].join("\n");
 
   await ctx.reply(text, {
@@ -614,13 +774,16 @@ bot.callbackQuery(/^unit:(.+)$/, async (ctx) => {
   });
 
   const promptText = [
-    `🎯 <b>Selected Unit:</b>`,
-    `<b>${paper.paperTitle}</b> ➔ <i>${unit.name}</i>`,
-    "",
-    `✍️ <b>Please type the Topic you want to generate questions for:</b>`,
-    `<i>Examples from syllabus:</i> ${unit.examples}`,
-    "",
-    `<i>Or tap an option below:</i>`,
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  🏛️ <b>TNPSC UNIT WORKSPACE</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `📚 <b>Paper:</b> ${paper.paperTitle} (${paper.paperCode})`,
+    `🏛️ <b>Unit:</b> <i>${unit.name}</i>`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `✍️ <b>Type a topic name below</b> to architect questions, or tap an option:`,
+    `📌 <b>Syllabus Highlights:</b> <i>${unit.examples}</i>`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
   ].join("\n");
 
   await ctx.reply(promptText, {
@@ -679,9 +842,16 @@ bot.callbackQuery("action:auto_all_papers", async (ctx) => {
   await ctx.answerCallbackQuery().catch(() => {});
   userState.delete(ctx.chat.id);
 
-  await ctx.reply("🚀 <b>Starting Automated Generation across ALL 9 Units (GS I, II & III)...</b>\n\nQuestions and Answers are saved into their respective Topic Pages inside each Unit folder in Notion.\n\n<i>Processing unit by unit...</i>", {
-    parse_mode: "HTML",
-  });
+  const startCard = [
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  🚀 <b>BATCH 9-UNIT AUTO GENERATOR</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `Generating authentic Mains Questions & 12-Rule Answers across GS I, II & III and auto-saving to Notion topic pages.`,
+    ``,
+    `<i>Processing unit by unit with real-time updates...</i>`,
+  ].join("\n");
+
+  await ctx.reply(startCard, { parse_mode: "HTML" });
 
   for (const u of ALL_UNITS) {
     try {
@@ -692,11 +862,14 @@ bot.callbackQuery("action:auto_all_papers", async (ctx) => {
 
       const cleanQ = res.question.replace(/<[^>]+>/g, "").trim();
       const progressText = [
-        `✅ <b>[${res.paperTitle}]</b>`,
-        `🏛️ <i>${res.unitName}</i>`,
-        `📄 <b>Topic Page:</b> "${res.topic}"`,
-        `📌 <b>Question:</b> "${cleanQ.slice(0, 60)}..."`,
-        `🔗 <a href="${res.notionUrl}">Open in Notion Topic Page</a>`,
+        `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+        `┃  ✅ <b>${res.paperTitle.toUpperCase()}</b>`,
+        `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+        `🏛️ <b>Unit:</b> <i>${res.unitName}</i>`,
+        `📄 <b>Topic Page:</b> <i>"${res.topic}"</i>`,
+        `📌 <b>Question:</b> <b>${cleanQ.slice(0, 80)}...</b>`,
+        ``,
+        `🔗 <a href="${res.notionUrl}"><b>👉 Open Interactive Page in Notion ↗</b></a>`,
       ].join("\n");
 
       await ctx.reply(progressText, { parse_mode: "HTML" });
@@ -706,7 +879,14 @@ bot.callbackQuery("action:auto_all_papers", async (ctx) => {
     }
   }
 
-  await ctx.reply("🎉 <b>All 9 Units successfully generated and saved into Notion!</b>\n\nYou can view all questions directly in your Notion workspace under GS I, GS II, and GS III.", {
+  const finishedCard = [
+    `╔════════════════════════════════════════╗`,
+    `║  🎉 <b>ALL 9 UNITS FULLY SYNCHRONIZED</b>`,
+    `╚════════════════════════════════════════╝`,
+    `All questions & 12-rule model answers are safely filed under GS I, GS II, and GS III folders in Notion.`,
+  ].join("\n");
+
+  await ctx.reply(finishedCard, {
     parse_mode: "HTML",
     reply_markup: getPapersInlineKeyboard(),
   });
@@ -716,7 +896,13 @@ bot.callbackQuery("action:auto_all_papers", async (ctx) => {
 bot.callbackQuery("action:pick_topic", async (ctx) => {
   await ctx.answerCallbackQuery().catch(() => {});
   userState.delete(ctx.chat.id);
-  await ctx.reply("📚 <b>TNPSC Mains Syllabus Navigation:</b>\n\nChoose a General Studies Paper to practice:", {
+  const text = [
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  📚 <b>TNPSC MAINS SYLLABUS HUB</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `Select a General Studies Paper to practice 15M/10M questions with 12-rule model answers:`,
+  ].join("\n");
+  await ctx.reply(text, {
     parse_mode: "HTML",
     reply_markup: getPapersInlineKeyboard(),
   });
@@ -776,10 +962,14 @@ bot.on("message:text", async (ctx) => {
     });
   }
 
-  await withTyping(ctx, async () => {
+  const anim = await createProgressAnimator(ctx, "ANSWER EVALUATOR & NOTION SYNC");
+  try {
+    await anim.step("📝 [1/3] Parsing Submitted Text Answer...", 30, "Analyzing structure & word count...");
     const out = await llm.evaluate(s.question, s.marks, s.words, { text: ctx.message.text });
     s.answer = ctx.message.text;
     s.evaluation = out;
+
+    await anim.step("⚖️ [2/3] Benchmarking against 12 TNPSC Rules...", 70, "Grading intro, subheadings & conclusions...");
 
     // Automatically update or save into Notion
     let notionUrl = s.notionUrl;
@@ -796,13 +986,16 @@ bot.on("message:text", async (ctx) => {
       console.error("Auto-save answer error:", err);
     }
 
-    let footer = "";
-    if (notionUrl) {
-      footer = `\n\n✅ <b>Answer & Evaluation Automatically Saved to Notion!</b>\n🔗 <a href="${notionUrl}">Open in Notion Unit Page</a>`;
-    }
+    await anim.step("📓 [3/3] Saving Marks & Feedback to Notion...", 95, "Syncing to Unit folder...");
+    await anim.delete();
 
-    await reply(ctx, out + footer, getPostAnswerKeyboard(s.unitId));
-  });
+    const card = formatModernEvaluationCard({ marks: s.marks, evaluation: out, submissionType: "Text Answer", notionUrl });
+    await reply(ctx, card, getPostAnswerKeyboard(s.unitId));
+  } catch (err) {
+    await anim.delete();
+    console.error("Evaluation error:", err);
+    await ctx.reply(`⚠️ Evaluation error: ${err.message}`);
+  }
 });
 
 // Handwritten photo answer submission
@@ -813,11 +1006,16 @@ bot.on("message:photo", async (ctx) => {
       reply_markup: getPapersInlineKeyboard(),
     });
   }
-  await withTyping(ctx, async () => {
+
+  const anim = await createProgressAnimator(ctx, "HANDWRITTEN OCR & EVALUATION");
+  try {
+    await anim.step("📸 [1/3] Downloading Handwritten Photo...", 25, "Preparing image for Gemini Vision...");
     const photos = ctx.message.photo;
     const file = await ctx.api.getFile(photos[photos.length - 1].file_id);
     const url = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
     const buf = Buffer.from(await (await fetch(url)).arrayBuffer());
+
+    await anim.step("👁️ [2/3] Gemini Vision OCR & 12-Rule Grading...", 70, "Analyzing handwriting, structure & unique keys...");
     const out = await llm.evaluate(s.question, s.marks, s.words, {
       imageBase64: buf.toString("base64"),
       mediaType: "image/jpeg",
@@ -825,7 +1023,7 @@ bot.on("message:photo", async (ctx) => {
     s.answer = "(Handwritten photo answer evaluated via Gemini Vision)";
     s.evaluation = out;
 
-    // Automatically update or save into Notion
+    await anim.step("📓 [3/3] Saving Handwritten Evaluation to Notion...", 95, "Syncing score and detailed breakdown...");
     let notionUrl = s.notionUrl;
     try {
       if (s.notionPageId) {
@@ -840,13 +1038,14 @@ bot.on("message:photo", async (ctx) => {
       console.error("Auto-save photo answer error:", err);
     }
 
-    let footer = "";
-    if (notionUrl) {
-      footer = `\n\n✅ <b>Handwritten Answer & Evaluation Automatically Saved to Notion!</b>\n🔗 <a href="${notionUrl}">Open in Notion Unit Page</a>`;
-    }
-
-    await reply(ctx, out + footer, getPostAnswerKeyboard(s.unitId));
-  });
+    await anim.delete();
+    const card = formatModernEvaluationCard({ marks: s.marks, evaluation: out, submissionType: "Handwritten Paper (Vision OCR)", notionUrl });
+    await reply(ctx, card, getPostAnswerKeyboard(s.unitId));
+  } catch (err) {
+    await anim.delete();
+    console.error("Photo eval error:", err);
+    await ctx.reply(`⚠️ Photo evaluation error: ${err.message}`);
+  }
 });
 
 // PDF and Document answer submission (Multi-page PDF / scanned papers)
@@ -875,16 +1074,15 @@ bot.on("message:document", async (ctx) => {
     return ctx.reply("⚠️ The file exceeds Telegram's 20MB download limit. Please compress your PDF and try again.");
   }
 
-  await withTyping(ctx, async () => {
-    await ctx.reply(`📄 <i>Received <b>${fileName}</b>! Reading all pages with Gemini Vision OCR and evaluating against 12 TNPSC rules...</i>`, {
-      parse_mode: "HTML",
-    });
-
+  const anim = await createProgressAnimator(ctx, "PDF OCR & EVALUATION ENGINE");
+  try {
+    await anim.step(`📄 [1/3] Ingesting "${fileName}"...`, 25, "Streaming multi-page PDF document...");
     const file = await ctx.api.getFile(doc.file_id);
     const url = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
     const buf = Buffer.from(await (await fetch(url)).arrayBuffer());
     const base64 = buf.toString("base64");
 
+    await anim.step("🧠 [2/3] Gemini Vision Multi-Page Analysis...", 70, "Evaluating handwriting, presentation & 12 rules...");
     const out = await llm.evaluate(s.question, s.marks, s.words, {
       pdfBase64: isPdf ? base64 : undefined,
       imageBase64: !isPdf ? base64 : undefined,
@@ -896,7 +1094,7 @@ bot.on("message:document", async (ctx) => {
       : `(Document image submitted: ${fileName} - evaluated via Gemini Vision)`;
     s.evaluation = out;
 
-    // Automatically update or save into Notion
+    await anim.step("📓 [3/3] Storing Comprehensive Report in Notion...", 95, "Writing feedback blocks...");
     let notionUrl = s.notionUrl;
     try {
       if (s.notionPageId) {
@@ -911,13 +1109,14 @@ bot.on("message:document", async (ctx) => {
       console.error("Auto-save document answer error:", err);
     }
 
-    let footer = "";
-    if (notionUrl) {
-      footer = `\n\n✅ <b>PDF Answer & Evaluation Automatically Saved to Notion!</b>\n🔗 <a href="${notionUrl}">Open in Notion Unit Page</a>`;
-    }
-
-    await reply(ctx, out + footer, getPostAnswerKeyboard(s.unitId));
-  });
+    await anim.delete();
+    const card = formatModernEvaluationCard({ marks: s.marks, evaluation: out, submissionType: `PDF Document (${fileName})`, notionUrl });
+    await reply(ctx, card, getPostAnswerKeyboard(s.unitId));
+  } catch (err) {
+    await anim.delete();
+    console.error("Document eval error:", err);
+    await ctx.reply(`⚠️ Document evaluation error: ${err.message}`);
+  }
 });
 
 // /auto command
@@ -934,26 +1133,21 @@ bot.command(["auto", "autogenerate"], async (ctx) => {
 // /daily command - Manually trigger or view today's 9:00 AM PYQ job
 bot.command(["daily", "daily_pyq", "today"], async (ctx) => {
   subscribeChat(ctx.chat.id);
-  await ctx.reply("⏳ <i>Running daily TNPSC Mains PYQ job (generating 2 questions + model answers) & auto-saving to Notion...</i>", { parse_mode: "HTML" });
+  const anim = await createProgressAnimator(ctx, "DAILY 9:00 AM PYQ ENGINE");
 
   try {
-    const res = await runDailyPYQJob({ force: true, bot });
-    const text = [
-      `⏰ <b>TNPSC Mains Daily 9:00 AM PYQ Practice (2 Questions)</b>`,
-      ``,
-      `🎯 <b>Topic:</b> ${res.topic}`,
-      ``,
-      `📌 <b>Question 1 (PYQ):</b>\n<i>${res.question1 || res.question}</i>`,
-      ``,
-      `📌 <b>Question 2 (PYQ):</b>\n<i>${res.question2}</i>`,
-      ``,
-      `✅ <b>Both 12-Rule Model Answers saved to Notion!</b>`,
-      `🔗 <a href="${res.notionUrl}">Open in Notion Topic Page</a>`,
-      ``,
-      `➡️ <i>Tomorrow's 9:00 AM Topic: <b>${res.nextTopic}</b></i>`,
-    ].join("\n");
+    const res = await runDailyPYQJob({
+      force: true,
+      bot,
+      onProgress: async (p) => {
+        await anim.step(p.text, p.pct, p.detail);
+      },
+    });
 
-    await ctx.reply(text, {
+    await anim.delete();
+    const card = formatModernDailySuiteCard(res);
+
+    await ctx.reply(card, {
       parse_mode: "HTML",
       disable_web_page_preview: false,
       reply_markup: new InlineKeyboard()
@@ -962,6 +1156,7 @@ bot.command(["daily", "daily_pyq", "today"], async (ctx) => {
         .text("📚 Choose Another Topic", "action:pick_topic"),
     });
   } catch (err) {
+    await anim.delete();
     console.error("Daily job error:", err);
     await ctx.reply(`⚠️ Daily job encountered an issue: ${err.message}. Auto-healer will retry at next scheduled interval.`);
   }
@@ -1089,20 +1284,27 @@ bot.callbackQuery("action:tomorrow_preview", async (ctx) => {
 
 bot.callbackQuery("action:run_tomorrow_now", async (ctx) => {
   await ctx.answerCallbackQuery({ text: "Generating tomorrow's topic now..." }).catch(() => {});
-  await ctx.reply("⏳ <i>Generating tomorrow's 2 TNPSC Mains PYQs & model answers right now...</i>", { parse_mode: "HTML" });
+  const anim = await createProgressAnimator(ctx, "TOMORROW 9:00 AM PYQ ENGINE");
   try {
-    const res = await runDailyPYQJob({ force: true, bot });
-    await ctx.reply(
-      `✅ <b>Completed Tomorrow's Topic!</b>\n\n🎯 <b>Topic:</b> ${res.topic}\n\n📌 <b>Question 1:</b>\n<i>${res.question1 || res.question}</i>\n\n📌 <b>Question 2:</b>\n<i>${res.question2}</i>\n\n🔗 <a href="${res.notionUrl}">Open in Notion Topic Page</a>\n\n➡️ <i>Next Scheduled Topic: <b>${res.nextTopic}</b></i>`,
-      {
-        parse_mode: "HTML",
-        reply_markup: new InlineKeyboard()
-          .url("🔗 Open in Notion", res.notionUrl)
-          .row()
-          .text("📚 Main Menu", "action:pick_topic"),
-      }
-    );
+    const res = await runDailyPYQJob({
+      force: true,
+      bot,
+      onProgress: async (p) => {
+        await anim.step(p.text, p.pct, p.detail);
+      },
+    });
+    await anim.delete();
+    const card = formatModernDailySuiteCard(res);
+    await ctx.reply(card, {
+      parse_mode: "HTML",
+      disable_web_page_preview: false,
+      reply_markup: new InlineKeyboard()
+        .url("🔗 Open in Notion", res.notionUrl)
+        .row()
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
   } catch (err) {
+    await anim.delete();
     await ctx.reply(`⚠️ Error generating: ${err.message}`);
   }
 });
@@ -1137,14 +1339,27 @@ bot.callbackQuery("action:view_status", async (ctx) => {
 
 bot.callbackQuery("action:run_daily_now", async (ctx) => {
   await ctx.answerCallbackQuery({ text: "Running daily job..." }).catch(() => {});
-  await ctx.reply("⏳ <i>Running daily PYQ job now...</i>", { parse_mode: "HTML" });
+  const anim = await createProgressAnimator(ctx, "DAILY 9:00 AM PYQ ENGINE");
   try {
-    const res = await runDailyPYQJob({ force: true, bot });
-    await ctx.reply(
-      `✅ <b>Completed!</b>\n\n🎯 <b>Topic:</b> ${res.topic}\n\n📌 <b>Question 1:</b>\n<i>${res.question1 || res.question}</i>\n\n📌 <b>Question 2:</b>\n<i>${res.question2}</i>\n\n🔗 <a href="${res.notionUrl}">Open in Notion Topic Page</a>\n\n➡️ <i>Next Topic: <b>${res.nextTopic}</b></i>`,
-      { parse_mode: "HTML" }
-    );
+    const res = await runDailyPYQJob({
+      force: true,
+      bot,
+      onProgress: async (p) => {
+        await anim.step(p.text, p.pct, p.detail);
+      },
+    });
+    await anim.delete();
+    const card = formatModernDailySuiteCard(res);
+    await ctx.reply(card, {
+      parse_mode: "HTML",
+      disable_web_page_preview: false,
+      reply_markup: new InlineKeyboard()
+        .url("🔗 Open in Notion", res.notionUrl)
+        .row()
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
   } catch (err) {
+    await anim.delete();
     await ctx.reply(`⚠️ Error: ${err.message}`);
   }
 });

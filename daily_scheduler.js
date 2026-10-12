@@ -77,7 +77,7 @@ let activeBotInstance = null;
  * 4. Advances sequential topic pointer to jump to the next topic tomorrow
  * 5. Broadcasts to subscribed Telegram chats
  */
-async function runDailyPYQJob({ force = false, bot = null } = {}) {
+async function runDailyPYQJob({ force = false, bot = null, onProgress = null } = {}) {
   const state = repairStateFile(STATE_FILE, DEFAULT_STATE);
   const todayStr = getTodayIST();
 
@@ -104,6 +104,14 @@ async function runDailyPYQJob({ force = false, bot = null } = {}) {
   // ══════════════════════════════════════════════════════════
   // PYQ 1: Pull First Authentic Question & Generate Model Answer
   // ══════════════════════════════════════════════════════════
+  if (onProgress) {
+    await onProgress({
+      step: 1,
+      text: "🔍 [1/4] Pulling Authentic TNPSC Mains PYQ #1...",
+      pct: 25,
+      detail: `Topic: ${currentTopic.topic}`,
+    }).catch(() => {});
+  }
   console.log(`[Daily Scheduler] [1/2] Pulling TNPSC Mains PYQ #1 for '${currentTopic.topic}'...`);
   const pyq1 = await autoHealRetry(
     async () => {
@@ -113,6 +121,14 @@ async function runDailyPYQJob({ force = false, bot = null } = {}) {
   );
   console.log(`📌 Pulled PYQ #1:\n${pyq1}\n`);
 
+  if (onProgress) {
+    await onProgress({
+      step: 2,
+      text: "✍️ [2/4] Architecting 12-Rule Answer for PYQ #1...",
+      pct: 50,
+      detail: "Structuring Current Affairs callout & unique key boxes...",
+    }).catch(() => {});
+  }
   console.log(`[Daily Scheduler] [1/2] Generating 12-rule Model Answer for PYQ #1...`);
   const ans1 = await autoHealRetry(
     async () => {
@@ -140,6 +156,14 @@ async function runDailyPYQJob({ force = false, bot = null } = {}) {
   // ══════════════════════════════════════════════════════════
   // PYQ 2: Pull Second Distinct Question & Generate Model Answer
   // ══════════════════════════════════════════════════════════
+  if (onProgress) {
+    await onProgress({
+      step: 3,
+      text: "🔍 [3/4] Pulling Distinct PYQ #2 & Model Answer...",
+      pct: 75,
+      detail: "Generating complementary syllabus sub-theme...",
+    }).catch(() => {});
+  }
   console.log(`[Daily Scheduler] [2/2] Pulling Distinct TNPSC Mains PYQ #2 for '${currentTopic.topic}'...`);
   const pyq2 = await autoHealRetry(
     async () => {
@@ -157,6 +181,14 @@ async function runDailyPYQJob({ force = false, bot = null } = {}) {
     { maxRetries: 3, operationName: "Generate Model Answer #2" }
   );
 
+  if (onProgress) {
+    await onProgress({
+      step: 4,
+      text: "📓 [4/4] Saving Questions & Model Answers to Notion...",
+      pct: 95,
+      detail: `Topic Page: "${currentTopic.topic}"`,
+    }).catch(() => {});
+  }
   console.log(`[Daily Scheduler] [2/2] Saving PYQ #2 to Notion Topic Page '${currentTopic.topic}'...`);
   const res2 = await autoHealRetry(
     async () => {

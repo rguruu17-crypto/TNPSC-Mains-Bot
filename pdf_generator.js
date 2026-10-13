@@ -54,29 +54,28 @@ function drawQCABHeader(doc, { paperCode = "PAPER II", pageNum = 1, totalPages =
     .text(`PAGE ${pageNum} OF ${totalPages}`, 45, 83, { align: "center", width: 505 });
 }
 
-function drawWritingGuides(doc, startY, endY, leftMarginX = 65, rightMarginX = 530) {
-  // Margin border lines
-  doc.lineWidth(0.8).strokeColor("#cbd5e1");
-  doc.moveTo(leftMarginX, startY).lineTo(leftMarginX, endY).stroke();
-  doc.moveTo(rightMarginX, startY).lineTo(rightMarginX, endY).stroke();
+function drawWritingGuides(doc, startY, endY) {
+  const L = 40, R = 555;
+  const lineSpacing = 23;
+  const headerH     = 18;  // top row height (wider than ruled lines, matches reference image)
+  const firstLineY  = startY + headerH + lineSpacing; // first ruled line
 
-  // Side margin warning
-  const midY = (startY + endY) / 2;
-  doc
-    .save()
-    .rotate(-90, { origin: [48, midY] })
-    .font("Helvetica-Bold")
-    .fontSize(6)
-    .fillColor("#94a3b8")
-    .text("DO NOT WRITE IN THIS MARGIN", 48, midY)
-    .restore();
+  // ── Outer border rectangle (matches reference image) ──────────
+  doc.lineWidth(0.8).strokeColor("#475569")
+     .rect(L, startY, R - L, endY - startY).stroke();
 
-  // Ruled writing lines — 23pt ≈ 8mm standard TNPSC government ruling
-  doc.lineWidth(0.4).strokeColor("#e2e8f0");
-  for (let y = startY + 16; y <= endY; y += 23) {
-    doc.moveTo(leftMarginX, y).lineTo(rightMarginX, y).stroke();
+  // ── Top header divider (wide first row) ───────────────────────
+  doc.lineWidth(0.4).strokeColor("#94a3b8")
+     .moveTo(L, startY + headerH).lineTo(R, startY + headerH).stroke();
+
+  // ── Ruled writing lines at 23pt spacing ───────────────────────
+  // Line 1 = startY + headerH + 23, Line N = last line ≤ endY
+  doc.lineWidth(0.35).strokeColor("#b0bec5");
+  for (let y = firstLineY; y <= endY - 4; y += lineSpacing) {
+    doc.moveTo(L + 2, y).lineTo(R - 2, y).stroke();
   }
 }
+
 
 function drawCutoffDemarcation(doc, { marks = 15, pageAllotted = "2 ½" }) {
   const y = 435;
@@ -352,10 +351,10 @@ function generateQCABPdf({ question, marks = 15, topic = "General Studies", pape
           doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#334155")
              .text(`Q.NO. ${qNum} (CONTINUED) • ${marks} MARKS • FINAL ½ PAGE (COMPLETES ${pageAllotted} PAGES)`, 48, stripY + 4, { width: 500 });
           // Half-page writing lines — exactly 15 lines at 23pt spacing
-          // Line 1 at Y=142, Line 15 at Y=142+(14×23)=464 → endY=466
-          drawWritingGuides(doc, 126, 466);
-          // Red "END OF ANSWER SPACE" banner (below 15th line)
-          const endY = 474;
+          // firstLine = 96+18+23 = 137, line 15 = 137+14×23 = 459 → endY = 468
+          drawWritingGuides(doc, 96, 468);
+          // Red "END OF ANSWER SPACE" banner (4pt below last line)
+          const endY = 476;
           doc.rect(40, endY, 515, 22).fillAndStroke("#fef2f2", "#b91c1c");
           doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#991b1b")
              .text(`END OF ANSWER SPACE  (${pageAllotted} PAGES ALLOTTED AS PER TNPSC QCAB NORMS)`, 45, endY + 6, { align: "center", width: 505 });
@@ -365,12 +364,14 @@ function generateQCABPdf({ question, marks = 15, topic = "General Studies", pape
           // First writing page — show topic context
           doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#334155")
              .text(`Q.NO. ${qNum} (CONTINUED) • ${marks} MARKS • PAGE ${pg} OF ${pageAllotted} • TOPIC: ${topic}`, 48, stripY + 4, { width: 500 });
-          drawWritingGuides(doc, 126, 805);
+          // Full page — exactly 29 lines at 23pt spacing
+          // firstLine = 96+18+23 = 137, line 29 = 137+28×23 = 781 → endY = 790
+          drawWritingGuides(doc, 96, 790);
         } else {
           // Middle writing pages
           doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#334155")
              .text(`Q.NO. ${qNum} (CONTINUED) • ${marks} MARKS • PAGE ${pg} OF ${pageAllotted}`, 48, stripY + 4, { width: 500 });
-          drawWritingGuides(doc, 126, 805);
+          drawWritingGuides(doc, 96, 790);
         }
       }
 

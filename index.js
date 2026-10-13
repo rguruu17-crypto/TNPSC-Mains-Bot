@@ -2400,6 +2400,47 @@ bot.on("message:photo", async (ctx) => {
   }
 });
 
+// Helpers to detect unit & paper from questions for uploaded QCAB answer sheets
+function detectUnitFromQuestion(text) {
+  const t = (text || "").toLowerCase();
+  if (/macaulay|british|oriental|colonial|revolt|mutiny|congress|nehru|gandhi|patel|ambedkar|tagore|freedom|rebellion|justice party|periyar|kamarajar|renaissance|sangam|history|culture/i.test(t)) {
+    return "GS1_U1";
+  }
+  if (/social|poverty|population|child|women|sanitation|dowry|domestic violence|health|illiteracy|unemployment|caste/i.test(t)) {
+    return "GS1_U2";
+  }
+  if (/ethics|integrity|aptitude|corruption|moral|civil services values|code of conduct|conflict of interest|probity/i.test(t)) {
+    return "GS1_U3";
+  }
+  if (/polity|constitution|parliament|governor|president|fundamental rights|directive principles|judiciary|election|federalism|panchayat|center-state/i.test(t)) {
+    return "GS2_U1";
+  }
+  if (/science|technology|space|isro|defence|biotechnology|ai|nuclear|nano|cyber|drdo|semiconductor/i.test(t)) {
+    return "GS2_U2";
+  }
+  if (/tamil nadu society|thirukkural|chola|pandya|pallava|sangam literature|heritage|temple architecture/i.test(t)) {
+    return "GS2_U3";
+  }
+  if (/geography|monsoon|climate|soil|rivers|cyclone|el nino|western ghats|minerals|cauvery|vaigai/i.test(t)) {
+    return "GS3_U1";
+  }
+  if (/environment|biodiversity|disaster|pollution|wildlife|climate change|wetlands|cop\d+|paris agreement|forest/i.test(t)) {
+    return "GS3_U2";
+  }
+  if (/economy|gdp|inflation|rbi|budget|fiscal|tax|gst|banking|agriculture|industry|trade|msme|export|fdi/i.test(t)) {
+    return "GS3_U3";
+  }
+  return "GS1_U1";
+}
+
+function getPaperCodeForUnit(unitId) {
+  if (!unitId) return "Paper II";
+  if (unitId.startsWith("GS1")) return "Paper II";
+  if (unitId.startsWith("GS2")) return "Paper III";
+  if (unitId.startsWith("GS3")) return "Paper IV";
+  return "Paper II";
+}
+
 // PDF QCAB Answer Sheet submission — AI evaluate + generate merged result PDF
 bot.on("message:document", async (ctx) => {
   let s = sessions.get(ctx.chat.id);
@@ -2504,9 +2545,9 @@ bot.on("message:document", async (ctx) => {
     await anim.step("📄 [5/6] Generating marked cover page + model answer PDF...", 78,
       "Compiling evaluation matrix, criteria breakdown & feedback...");
 
-    const found      = s.unitId ? findUnitById(s.unitId) : null;
-    const paperCode  = found ? found.paper.paperCode : "Paper II";
-    const topic      = s.topic || evalQuestion.split(" ").slice(0, 5).join(" ");
+    const targetUnitId = s.unitId || detectUnitFromQuestion(evalQuestion);
+    const paperCode    = getPaperCodeForUnit(targetUnitId);
+    const topic        = s.topic || evalQuestion.split(" ").slice(0, 5).join(" ");
 
     const [markedCoverPath, modelAnswerPath] = await Promise.all([
       generateMarkedCoverPdf({
@@ -2518,6 +2559,42 @@ bot.on("message:document", async (ctx) => {
         qNum: 1, modelAnswer: modelAnswerText,
       }),
     ]);
+
+    // ── STEP 5B: Save Model Answer & Evaluation to Notion ────────
+    let notionPageUrl = null;
+    try {
+      const { total_marks: tMarks, max_marks: mMarks, overall_feedback: oFeedback, evaluation: evData } = evaluation;
+      const pctScore   = Math.round((tMarks / mMarks) * 100);
+      const gradeStr   = pctScore >= 80 ? "A+" : pctScore >= 65 ? "A" : pctScore >= 50 ? "B" : "C";
+      const labelStr   = pctScore >= 80 ? "EXCELLENT 🏆" : pctScore >= 65 ? "GOOD ✅" : pctScore >= 50 ? "SATISFACTORY 📊" : "NEEDS IMPROVEMENT ⚠️";
+
+      const evalSummary = [
+        `Score: ${tMarks} / ${mMarks} Marks (${gradeStr} - ${labelStr})`,
+        `Introduction: ${evData?.introduction?.marks_awarded || 0}/${evData?.introduction?.max_marks || 0}`,
+        `Main Content: ${evData?.body?.marks_awarded || 0}/${evData?.body?.max_marks || 0}`,
+        `Conclusion: ${evData?.conclusion?.marks_awarded || 0}/${evData?.conclusion?.max_marks || 0}`,
+        `12-Rule Format: ${evData?.format?.marks_awarded || 0}/${evData?.format?.max_marks || 0}`,
+        `Language: ${evData?.language?.marks_awarded || 0}/${evData?.language?.max_marks || 0}`,
+        `Feedback: ${oFeedback || "Satisfactory attempt."}`,
+      ].join("\n");
+
+      const notionRes = await saveSession({
+        question: evalQuestion,
+        marks: s.marks,
+        words,
+        modelAnswer: modelAnswerText,
+        evaluation: evalSummary,
+        topic: s.topic || evalQuestion.split(" ").slice(0, 6).join(" "),
+        unitId: targetUnitId,
+      });
+
+      if (notionRes && notionRes.url) {
+        notionPageUrl = notionRes.url;
+        console.log(`[Notion] Saved uploaded PDF model answer: ${notionPageUrl}`);
+      }
+    } catch (nErr) {
+      console.warn("[Notion] Could not save uploaded PDF session to Notion:", nErr.message);
+    }
 
     // ── STEP 6: Merge: marked cover + user's sheet + model answer
     await anim.step("📎 [6/6] Merging all pages into one PDF...", 92,
@@ -2552,18 +2629,24 @@ bot.on("message:document", async (ctx) => {
       ``,
       `💬 <b>Feedback:</b> <i>${(overall_feedback || "").slice(0, 200)}</i>`,
       ``,
+      notionPageUrl ? `📓 <b>Saved to Notion:</b> <a href="${notionPageUrl}">Open in Notion Workspace</a>\n` : ``,
       `📄 <i>PDF contains: Marked Cover Page + Your Answer Sheet + Model Answer</i>`,
-    ].join("\n");
+    ].filter(Boolean).join("\n");
+
+    const kb = new InlineKeyboard();
+    if (notionPageUrl) {
+      kb.url("📓 View in Notion", notionPageUrl).row();
+    }
+    kb.text("📑 New QCAB Sheet", "action:qcab_pdf")
+      .text("📊 My Analytics", "action:analytics")
+      .row()
+      .text("📚 Next Question", "action:pick_topic");
 
     const outFileName = `QCAB_Evaluated_${s.marks}M_${Date.now().toString().slice(-4)}.pdf`;
     await ctx.replyWithDocument(new InputFile(mergedPath, outFileName), {
       caption,
       parse_mode: "HTML",
-      reply_markup: new InlineKeyboard()
-        .text("📑 New QCAB Sheet", "action:qcab_pdf")
-        .text("📊 My Analytics", "action:analytics")
-        .row()
-        .text("📚 Next Question", "action:pick_topic"),
+      reply_markup: kb,
     });
 
     // Cleanup temp files

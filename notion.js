@@ -251,8 +251,11 @@ function htmlToNotionBlocks(html) {
         boxColor = "gray_background";
       }
 
-      // Strip redundant leading icon from the text content so it doesn't double-render
-      cleanLine = cleanLine.replace(/^[\s⚡💡🔴📰⭐📌]+/, "").trim();
+      // Strip redundant leading icon and bracketed tags from callout content
+      cleanLine = cleanLine
+        .replace(/^[\s⚡💡🔴📰⭐📌]+/, "")
+        .replace(/^\[?(CURRENT\s*AFFAIRS(\s*BOX)?|VALUE\s*ADDITION)\]?:?\s*/i, "")
+        .trim();
 
       blocks.push({
         object: "block",

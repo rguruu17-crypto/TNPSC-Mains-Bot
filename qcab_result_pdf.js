@@ -292,15 +292,22 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
 
       // ── Helper: draw a coloured strip box over the lines ─────────
       function drawStripBox(text, bgColor, borderColor, labelText, textColor, labelColor) {
-        ensureSpace(2);
-        const boxH = LINE_SPACING * 2 - 2;
-        doc.rect(PAGE_L + 2, curY - LINE_SPACING + 2, PAGE_W - 4, boxH)
+        doc.font("Helvetica").fontSize(9.5);
+        const textW = PAGE_W - 20;
+        const rawH = doc.heightOfString(text, { width: textW });
+        const textLines = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
+        const linesNeeded = textLines > 2 ? 3 : 2;
+        ensureSpace(linesNeeded);
+
+        const boxH = linesNeeded * LINE_SPACING - 3;
+        const boxTop = curY - LINE_SPACING + 2;
+        doc.roundedRect(PAGE_L + 2, boxTop, PAGE_W - 4, boxH, 3)
            .fillAndStroke(bgColor, borderColor);
-        doc.font("Helvetica-Bold").fontSize(7).fillColor(labelColor)
-           .text(labelText, PAGE_L + 6, curY - LINE_SPACING + 5, { width: PAGE_W - 12 });
-        doc.font("Helvetica").fontSize(7.5).fillColor(textColor)
-           .text(text, PAGE_L + 6, curY - LINE_SPACING + 14, { width: PAGE_W - 12, lineBreak: false });
-        curY = _nextLine(curY, 2);
+        doc.font("Helvetica-Bold").fontSize(9).fillColor(labelColor)
+           .text(labelText, PAGE_L + 8, boxTop + 4, { width: textW });
+        doc.font("Helvetica").fontSize(9.5).fillColor(textColor)
+           .text(text, PAGE_L + 8, boxTop + 16, { width: textW, lineGap: 1.5 });
+        curY = _nextLine(curY, linesNeeded);
       }
 
       // ── Render each line of structured model answer ───────────────
@@ -308,21 +315,23 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
         const line = raw.trim();
         if (!line) continue;
 
-        // INTRODUCTION / CONCLUSION — dark coloured label bar
+        // INTRODUCTION / CONCLUSION — prominent label bar
         if (/^(INTRODUCTION|CONCLUSION)$/i.test(line)) {
           ensureSpace(1);
           const bg = /INTRO/i.test(line) ? "#1e3a5f" : "#14532d";
-          doc.rect(PAGE_L + 2, curY - LINE_SPACING + 3, PAGE_W - 4, LINE_SPACING - 4)
+          const barTop = curY - LINE_SPACING + 2;
+          const barH = LINE_SPACING - 3;
+          doc.roundedRect(PAGE_L + 2, barTop, PAGE_W - 4, barH, 2)
              .fillAndStroke(bg, bg);
-          doc.font("Helvetica-Bold").fontSize(9).fillColor("#ffffff")
-             .text(`▶  ${line.toUpperCase()}`, PAGE_L + 8, curY - LINE_SPACING + 6, { width: PAGE_W - 16 });
+          doc.font("Helvetica-Bold").fontSize(11).fillColor("#ffffff")
+             .text(`▶  ${line.toUpperCase()}`, PAGE_L + 10, barTop + 5, { width: PAGE_W - 20 });
           curY = _nextLine(curY);
           continue;
         }
 
         // [CURRENT AFFAIRS BOX]:
         if (/^\[CURRENT AFFAIRS BOX\]/i.test(line)) {
-          const text = line.replace(/^\[CURRENT AFFAIRS BOX\]:\s*/i, "").trim() ||
+          const text = line.replace(/^\[CURRENT AFFAIRS BOX\]:?\s*/i, "").trim() ||
                        "Recent policy context relevant to this topic.";
           drawStripBox(text, "#fef3c7", "#f59e0b", "⚡ CURRENT AFFAIRS / CORE FOCUS:", "#78350f", "#92400e");
           continue;
@@ -330,7 +339,7 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
 
         // [VALUE ADDITION]:
         if (/^\[VALUE ADDITION\]/i.test(line)) {
-          const text = line.replace(/^\[VALUE ADDITION\]:\s*/i, "").trim();
+          const text = line.replace(/^\[VALUE ADDITION\]:?\s*/i, "").trim();
           drawStripBox(text, "#f0fdf4", "#86efac", "💡 VALUE ADDITION / UNIQUE KEY:", "#166534", "#15803d");
           continue;
         }
@@ -338,21 +347,28 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
         // Numbered SUBHEADINGS (1. HEADING IN CAPS)
         if (/^\d+\.\s+[A-Z]/.test(line)) {
           ensureSpace(1);
-          // Draw a subtle blue-grey background over this line
-          doc.rect(PAGE_L + 2, curY - LINE_SPACING + 3, PAGE_W - 4, LINE_SPACING - 4)
+          const barTop = curY - LINE_SPACING + 2;
+          const barH = LINE_SPACING - 3;
+          doc.roundedRect(PAGE_L + 2, barTop, PAGE_W - 4, barH, 2)
              .fillAndStroke("#e8edf5", "#c7d2e8");
-          doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#1e293b")
-             .text(line, PAGE_L + 8, curY - LINE_SPACING + 6, { width: PAGE_W - 16 });
+          doc.font("Helvetica-Bold").fontSize(10.5).fillColor("#0f172a")
+             .text(line, PAGE_L + 10, barTop + 5, { width: PAGE_W - 20 });
           curY = _nextLine(curY);
           continue;
         }
 
         // Bullet points
         if (/^[•\-]/.test(line)) {
-          ensureSpace(1);
-          doc.font("Helvetica").fontSize(8.5).fillColor("#334155")
-             .text(line, PAGE_L + 20, curY + TEXT_OFFSET, { width: PAGE_W - 28, lineBreak: false });
-          curY = _nextLine(curY);
+          doc.font("Helvetica").fontSize(10);
+          const textW = PAGE_W - 26;
+          const rawH = doc.heightOfString(line, { width: textW });
+          const linesNeeded = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
+          ensureSpace(linesNeeded);
+          const lineGap = LINE_SPACING - doc.currentLineHeight();
+          const textTop = curY - LINE_SPACING + 4;
+          doc.font("Helvetica").fontSize(10).fillColor("#334155")
+             .text(line, PAGE_L + 16, textTop, { width: textW, lineGap });
+          curY = _nextLine(curY, linesNeeded);
           continue;
         }
 
@@ -362,32 +378,36 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
         // Word count line
         if (/^word count/i.test(line)) {
           ensureSpace(1);
-          doc.font("Helvetica-Oblique").fontSize(7.5).fillColor("#94a3b8")
-             .text(line, PAGE_L + 8, curY + TEXT_OFFSET, { width: PAGE_W - 16, align: "right" });
+          const textTop = curY - LINE_SPACING + 5;
+          doc.font("Helvetica-Oblique").fontSize(8.5).fillColor("#64748b")
+             .text(line, PAGE_L + 8, textTop, { width: PAGE_W - 16, align: "right" });
           curY = _nextLine(curY);
           continue;
         }
 
-        // Regular paragraph text (wraps to next line if too long)
-        const estCharsPerLine = 90;
-        const wrappedLines = Math.ceil(line.length / estCharsPerLine);
-        ensureSpace(wrappedLines);
-        doc.font("Helvetica").fontSize(8.5).fillColor("#1e293b")
-           .text(line, PAGE_L + 8, curY + TEXT_OFFSET, { width: PAGE_W - 16, lineGap: LINE_SPACING - 10 });
-        curY = _nextLine(curY, wrappedLines);
+        // Regular paragraph text (Introduction body, Conclusion body)
+        doc.font("Helvetica").fontSize(10);
+        const textW = PAGE_W - 16;
+        const rawH = doc.heightOfString(line, { width: textW });
+        const linesNeeded = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
+        ensureSpace(linesNeeded);
+        const lineGap = LINE_SPACING - doc.currentLineHeight();
+        const textTop = curY - LINE_SPACING + 4;
+        doc.font("Helvetica").fontSize(10).fillColor("#1e293b")
+           .text(line, PAGE_L + 8, textTop, { width: textW, lineGap });
+        curY = _nextLine(curY, linesNeeded);
       }
 
       // ── END OF ANSWER SPACE banner on the last writing page ──────
       if (pageIdx < writePgs - 1) {
-        // Add remaining pages if content finished early
         while (pageIdx < writePgs - 1) {
           addWritingPage();
         }
       }
       const finalEndY = endYForPage(pageIdx);
       const bannerY   = finalEndY + 6;
-      doc.rect(PAGE_L, bannerY, PAGE_W, 22).fillAndStroke("#f0fdf4", "#15803d");
-      doc.font("Helvetica-Bold").fontSize(8).fillColor("#14532d")
+      doc.roundedRect(PAGE_L, bannerY, PAGE_W, 24, 3).fillAndStroke("#f0fdf4", "#15803d");
+      doc.font("Helvetica-Bold").fontSize(9).fillColor("#14532d")
          .text("✅ END OF MODEL ANSWER  —  TNPSC 12-RULE FORMAT", PAGE_L + 4, bannerY + 7, { align: "center", width: PAGE_W - 8 });
 
       doc.end();

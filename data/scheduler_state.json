@@ -1,14 +1,31 @@
 {
-  "currentTopicIndex": 4,
-  "lastRunDate": "2026-10-12",
-  "lastRunTime": "2026-10-12T12:01:56.573Z",
+  "currentTopicIndex": 5,
+  "lastRunDate": "2026-10-13",
+  "lastRunTime": "2026-10-13T05:55:47.655Z",
   "lastRunStatus": "success",
-  "lastRunTopic": "Early Uprising against British Rule",
-  "lastRunQuestion": "[TNPSC Group-1 Mains PYQ (2019)]: Critically examine the causes and significance of the Vellore Mutiny of 1806 as a prelude to the Great Revolt of 1857.",
-  "lastRunNotionUrl": "https://app.notion.com/p/Early-Uprising-against-British-Rule-3f7bdc8a71e08128a3ead8e5062b0896",
+  "lastRunTopic": "South Indian Rebellion 1799–1801 A.D.",
+  "lastRunQuestion": "[TNPSC Group-1 Mains PYQ (Pattern)]: Examine the socio-economic and political causes that led to the South Indian Rebellion of 1799-1801 A.D. and evaluate its importance as an early anti-colonial resistance movement.",
+  "lastRunNotionUrl": "https://app.notion.com/p/South-Indian-Rebellion-1799-1801-A-D-3f7bdc8a71e08102823be6aa6f94ce83",
   "subscribedChats": [],
-  "totalRuns": 2,
+  "totalRuns": 3,
   "history": [
+    {
+      "date": "2026-10-13",
+      "timestamp": "2026-10-13T05:55:47.655Z",
+      "topic": "South Indian Rebellion 1799–1801 A.D.",
+      "unitId": "GS1_U1",
+      "paper": "📜 General Studies I (Paper II)",
+      "unit": "🏛️ Unit I: Modern History of India and Indian Culture (100 marks)",
+      "questions": [
+        {
+          "text": "[TNPSC Group-1 Mains PYQ (Pattern)]: Examine the socio-economic and political causes that led to the South Indian Rebellion of 1799-1801 A.D. and evaluate its importance as an early anti-colonial resistance movement."
+        },
+        {
+          "text": "[TNPSC Group-1 Mains PYQ (Pattern)]: Trace the major events and phases of the South Indian Rebellion (1799-1801 A.D.) and evaluate the factors responsible for its ultimate failure against the British."
+        }
+      ],
+      "notionUrl": "https://app.notion.com/p/South-Indian-Rebellion-1799-1801-A-D-3f7bdc8a71e08102823be6aa6f94ce83"
+    },
     {
       "date": "2026-10-12",
       "timestamp": "2026-10-12T12:01:56.573Z",
@@ -38,7 +55,7 @@
     }
   ],
   "lastRunQuestions": [
-    "[TNPSC Group-1 Mains PYQ (2019)]: Critically examine the causes and significance of the Vellore Mutiny of 1806 as a prelude to the Great Revolt of 1857.",
-    "[TNPSC Group-1 Mains PYQ (2022)]: Evaluate the role of the Palayakkarars of Tamil Nadu as pioneers of the early resistance against British imperial rule."
+    "[TNPSC Group-1 Mains PYQ (Pattern)]: Examine the socio-economic and political causes that led to the South Indian Rebellion of 1799-1801 A.D. and evaluate its importance as an early anti-colonial resistance movement.",
+    "[TNPSC Group-1 Mains PYQ (Pattern)]: Trace the major events and phases of the South Indian Rebellion (1799-1801 A.D.) and evaluate the factors responsible for its ultimate failure against the British."
   ]
 }

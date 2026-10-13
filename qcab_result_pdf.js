@@ -390,8 +390,8 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
         const textW = PAGE_W - 20;
         const cleanBody = _sanitizeForPdf(text);
         const rawH = doc.heightOfString(cleanBody, { width: textW });
-        const textLines = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
-        const linesNeeded = textLines > 2 ? 3 : 2;
+        const textLines = Math.max(1, Math.ceil(rawH / doc.currentLineHeight()));
+        const linesNeeded = 1 + textLines;
         ensureSpace(linesNeeded);
 
         const boxH = linesNeeded * LINE_SPACING - 3;
@@ -412,7 +412,7 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
            .text(labelText, PAGE_L + 23, boxTop + 4, { width: textW - 17 });
 
         doc.font(fontHand).fontSize(10).fillColor(textColor)
-           .text(cleanBody, PAGE_L + 8, boxTop + 16, { width: textW, lineGap: 1.5 });
+           .text(cleanBody, PAGE_L + 8, boxTop + 17, { width: textW, lineGap: 2 });
         curY = _nextLine(curY, linesNeeded);
       }
 
@@ -505,21 +505,21 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
         // 6. BULLET / NUMBERED POINTS (matches Notion's bulleted list items)
         const isPoint = /^\d+[\.\)]\s+/.test(clean) || /^[•\-\*]\s+/.test(clean);
         if (isPoint) {
-          let pointText = clean;
-          if (!/^[•]/.test(pointText)) {
-            pointText = pointText.replace(/^\d+[\.\)]\s*/, "• ").replace(/^[\-\*]\s*/, "• ");
-          }
+          const pointText = clean.replace(/^(\d+[\.\)]|[•\-\*])\s*/, "").trim();
           const cleanPt = _sanitizeForPdf(pointText);
           doc.font(fontHand).fontSize(10.5);
-          const textW = PAGE_W - 26;
+          const textW = PAGE_W - 28;
           const rawH = doc.heightOfString(cleanPt, { width: textW });
-          const linesNeeded = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
+          const linesNeeded = Math.max(1, Math.ceil(rawH / doc.currentLineHeight()));
           ensureSpace(linesNeeded);
           const lineGap = LINE_SPACING - doc.currentLineHeight();
           const textTop = curY - LINE_SPACING + 4;
+          // Draw crisp round ink bullet dot
+          doc.circle(PAGE_L + 10, textTop + 7, 1.8).fill("#0f2942");
+
           // Authentic pen ink color (#0f2942)
           doc.font(fontHand).fontSize(10.5).fillColor("#0f2942")
-             .text(cleanPt, PAGE_L + 16, textTop, { width: textW, lineGap: Math.max(2, lineGap) });
+             .text(cleanPt, PAGE_L + 18, textTop, { width: textW, lineGap: Math.max(2, lineGap) });
           curY = _nextLine(curY, linesNeeded);
           continue;
         }

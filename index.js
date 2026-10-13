@@ -2448,19 +2448,13 @@ bot.on("message:document", async (ctx) => {
   // ── No session? Create a default context for verification uploads ──
   if (!s) {
     s = {
-      question: "General TNPSC Group-1 Mains question (uploaded for verification)",
+      question: "General TNPSC Group-1 Mains answer sheet",
       marks: 15,
       words: 250,
       topic: "General Studies",
       unitId: null,
     };
     sessions.set(ctx.chat.id, s);
-    await ctx.reply(
-      "📋 <b>No active question session found.</b>\n" +
-      "⚡ Evaluating your uploaded sheet as a <b>15-mark General Studies answer</b> for verification.\n\n" +
-      "💡 <i>Tip: Next time, generate a question first using the menu, then upload your PDF for topic-specific evaluation!</i>",
-      { parse_mode: "HTML" }
-    );
   }
 
   const docMsg  = ctx.message.document;
@@ -2494,10 +2488,42 @@ bot.on("message:document", async (ctx) => {
     const tmpPath = path.join(__dirname, "data", "generated_pdfs", `UPLOAD_${Date.now()}.pdf`);
     fs.writeFileSync(tmpPath, buf);
 
-    // ── STEP 2: Read the QUESTION from the sheet ─────────────────
-    await anim.step("🔍 [2/6] Reading question written on the sheet...", 22,
-      "Gemini Vision scanning Q.No. area for the actual question...");
+    // ── STEP 1B: Inspect Page Count & Auto-Detect Marks ─────────
+    // TNPSC Group-1 Mains Space Standards:
+    // • 10-Mark Question: Exactly 1 ½ Writing Pages (2-page booklet, ~150 words)
+    // • 15-Mark Question: Exactly 2 ½ Writing Pages (3-page booklet, ~250 words)
+    let pageCount = 0;
+    if (isPdf) {
+      try {
+        const { PDFDocument: LibPDF } = require("pdf-lib");
+        const loadedPdf = await LibPDF.load(buf, { ignoreEncryption: true });
+        pageCount = loadedPdf.getPageCount();
+      } catch (e) {
+        console.warn("[QCAB] Could not inspect uploaded PDF page count:", e.message);
+      }
+    } else {
+      pageCount = 1;
+    }
+
+    // Default based on official booklet page count: <= 2 pages = 10M, >= 3 pages = 15M
+    let autoDetectedMarks = pageCount <= 2 ? 10 : 15;
+
+    // ── STEP 2: Read the QUESTION & Marks from the sheet ─────────
+    await anim.step("🔍 [2/6] Reading question & detecting marks from sheet...", 22,
+      "Gemini Vision scanning Q.No. area for question and marks...");
     const detectedQuestion = await extractQuestionFromSheet(tmpPath);
+
+    // Check if the question text or header explicitly specifies marks (e.g. "[10 Marks]" or "15 Marks")
+    if (detectedQuestion) {
+      const marksMatch = /(?:\[|\()?\b(10|15)\s*(?:marks?|m\b)/i.exec(detectedQuestion);
+      if (marksMatch) {
+        autoDetectedMarks = parseInt(marksMatch[1], 10);
+      }
+    }
+
+    // Apply auto-detected marks to session
+    s.marks = autoDetectedMarks;
+    s.words = s.marks === 10 ? 150 : 250;
 
     // Use detected question if found; fallback to session question
     const evalQuestion = (detectedQuestion && detectedQuestion.length > 15)
@@ -2508,15 +2534,23 @@ bot.on("message:document", async (ctx) => {
     if (detectedQuestion && detectedQuestion.length > 15) {
       s.question = detectedQuestion;
       s.topic    = detectedQuestion.split(" ").slice(0, 6).join(" ") + "...";
-      await ctx.reply(
-        `🔍 <b>Question detected from your sheet:</b>\n<i>"${detectedQuestion}"</i>`,
-        { parse_mode: "HTML" }
-      );
     }
+
+    const pagesDesc = pageCount > 0
+      ? `• <b>Booklet Length:</b> <code>${pageCount} Page${pageCount === 1 ? "" : "s"} (${s.marks === 10 ? "1 ½" : "2 ½"} writing pages)</code>\n`
+      : "";
+
+    await ctx.reply(
+      `🔍 <b>QCAB Sheet Auto-Detected:</b>\n` +
+      pagesDesc +
+      `• <b>Standard:</b> <code>${s.marks} MARKS (${s.marks === 10 ? "~150 words • 8 mins" : "~250 words • 12 mins"})</code>\n` +
+      `• <b>Question:</b> <i>"${evalQuestion}"</i>`,
+      { parse_mode: "HTML" }
+    );
 
     // ── STEP 3: AI Evaluate via Gemini Vision ────────────────────
     await anim.step("👁️ [3/6] Gemini Vision — Reading handwriting & scoring...", 40,
-      "OCR + 12-Rule criteria: intro / body / conclusion / format / language...");
+      `OCR + 12-Rule criteria (${s.marks}M scale): intro / body / conclusion / format / language...`);
     const evaluation = await evaluateQCABSheet(tmpPath, evalQuestion, s.marks);
     s.evaluation = evaluation;
 

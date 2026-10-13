@@ -2535,8 +2535,8 @@ bot.on("message:document", async (ctx) => {
     await anim.step("🧠 [4/6] Generating structured 12-rule model answer...", 58,
       "Building Introduction → Subheadings → Value Addition Boxes → Conclusion...");
     const words = s.marks === 10 ? 150 : 250;
-    // Always regenerate for the detected question (not cached session answer)
-    const modelAnswerText = await llm.generatePdfModelAnswer(evalQuestion, s.marks, words);
+    // Generate 12-rule model answer using the exact same structure as Notion Saver
+    const modelAnswerText = await llm.modelAnswer(evalQuestion, s.marks, words);
     s.modelAnswer = modelAnswerText;
 
 

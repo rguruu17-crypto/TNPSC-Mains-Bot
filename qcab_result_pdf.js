@@ -243,14 +243,11 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
       const writePgs   = is10 ? 2 : 3;          // 10M→1½ pages, 15M→2½ pages
       const totalPages = writePgs;
 
-      // Clean the model answer text
+      // Clean and split lines
       const rawLines = (modelAnswer || "")
         .split("\n")
-        .map(l => l
-          .replace(/<[^>]+>/g, "")   // strip HTML
-          .replace(/\*\*/g, "")      // strip **bold**
-          .replace(/\*/g, "")        // strip *italic*
-        );
+        .map(l => l.trim())
+        .filter(Boolean);
 
       // ── State machine: iterate over text lines and render ────────
       let pageIdx = 0;   // 0-based page index
@@ -290,7 +287,7 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
         }
       }
 
-      // ── Helper: draw a coloured strip box over the lines ─────────
+      // ── Helper: draw a coloured callout box over the lines ───────
       function drawStripBox(text, bgColor, borderColor, labelText, textColor, labelColor) {
         doc.font("Helvetica").fontSize(9.5);
         const textW = PAGE_W - 20;
@@ -310,91 +307,132 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
         curY = _nextLine(curY, linesNeeded);
       }
 
-      // ── Render each line of structured model answer ───────────────
-      for (const raw of rawLines) {
-        const line = raw.trim();
-        if (!line) continue;
+      // ── Render each line adhering strictly to Notion Saver structure ─
+      for (const line of rawLines) {
+        const clean = line
+          .replace(/<[^>]+>/g, "")   // strip HTML
+          .replace(/\*\*/g, "")      // strip **bold**
+          .replace(/\*/g, "")        // strip *italic*
+          .trim();
+        if (!clean) continue;
 
-        // INTRODUCTION / CONCLUSION — prominent label bar
-        if (/^(INTRODUCTION|CONCLUSION)$/i.test(line)) {
+        // 1. INTRODUCTION HEADER (matches Notion's bold Introduction)
+        const isIntro = /^(\d+\.\s*)?Introduction[:\s]*$/i.test(clean) ||
+                        clean.toUpperCase() === "INTRODUCTION";
+        if (isIntro) {
           ensureSpace(1);
-          const bg = /INTRO/i.test(line) ? "#1e3a5f" : "#14532d";
           const barTop = curY - LINE_SPACING + 2;
           const barH = LINE_SPACING - 3;
           doc.roundedRect(PAGE_L + 2, barTop, PAGE_W - 4, barH, 2)
-             .fillAndStroke(bg, bg);
+             .fillAndStroke("#1e3a5f", "#1e3a5f");
           doc.font("Helvetica-Bold").fontSize(11).fillColor("#ffffff")
-             .text(`▶  ${line.toUpperCase()}`, PAGE_L + 10, barTop + 5, { width: PAGE_W - 20 });
+             .text("▶  INTRODUCTION", PAGE_L + 10, barTop + 5, { width: PAGE_W - 20 });
           curY = _nextLine(curY);
           continue;
         }
 
-        // [CURRENT AFFAIRS BOX]:
-        if (/^\[CURRENT AFFAIRS BOX\]/i.test(line)) {
-          const text = line.replace(/^\[CURRENT AFFAIRS BOX\]:?\s*/i, "").trim() ||
-                       "Recent policy context relevant to this topic.";
+        // 2. CONCLUSION HEADER (matches Notion's bold Conclusion)
+        const isConclusion = /^(\d+\.\s*)?Conclusion(\s*&?\s*Way\s*Forward)?[:\s]*$/i.test(clean) ||
+                             clean.toUpperCase() === "CONCLUSION";
+        if (isConclusion) {
+          ensureSpace(1);
+          const barTop = curY - LINE_SPACING + 2;
+          const barH = LINE_SPACING - 3;
+          doc.roundedRect(PAGE_L + 2, barTop, PAGE_W - 4, barH, 2)
+             .fillAndStroke("#14532d", "#14532d");
+          doc.font("Helvetica-Bold").fontSize(11).fillColor("#ffffff")
+             .text("▶  CONCLUSION", PAGE_L + 10, barTop + 5, { width: PAGE_W - 20 });
+          curY = _nextLine(curY);
+          continue;
+        }
+
+        // 3. CURRENT AFFAIRS / CORE FOCUS BOX (matches Notion's Orange Callout block)
+        const isCurrentAffairs =
+          /CURRENT\s*AFFAIRS|CORE\s*FOCUS|CONTEMPORARY\s*(CONTEXT|RELEVANCE)|RECENT\s*DEVELOPMENT/i.test(clean) ||
+          /^(\s*⚡|\s*📰)/.test(clean);
+        if (isCurrentAffairs) {
+          let text = clean
+            .replace(/^[\s⚡📰📌]+/, "")
+            .replace(/^\[?(CURRENT\s*AFFAIRS(\s*\/\s*CORE\s*FOCUS)?(\s*BOX)?)\]?:?\s*/i, "")
+            .trim() || "Recent policy context relevant to this topic.";
           drawStripBox(text, "#fef3c7", "#f59e0b", "⚡ CURRENT AFFAIRS / CORE FOCUS:", "#78350f", "#92400e");
           continue;
         }
 
-        // [VALUE ADDITION]:
-        if (/^\[VALUE ADDITION\]/i.test(line)) {
-          const text = line.replace(/^\[VALUE ADDITION\]:?\s*/i, "").trim();
-          drawStripBox(text, "#f0fdf4", "#86efac", "💡 VALUE ADDITION / UNIQUE KEY:", "#166534", "#15803d");
+        // 4. UNIQUE KEY / VALUE ADDITION BOX (matches Notion's Purple Callout block)
+        const isValueAddition =
+          /UNIQUE\s*(KEY|HIGHLIGHT|INSIGHT)|VALUE\s*ADDITION|EXAMINER\s*DIFFERENTIATOR/i.test(clean) ||
+          line.includes("🔴") ||
+          /^(\s*💡|\s*⭐)/.test(clean);
+        if (isValueAddition) {
+          let text = clean
+            .replace(/^[\s💡⭐🔴]+/, "")
+            .replace(/^\[?(UNIQUE\s*KEY(\s*\/\s*VALUE\s*ADDITION)?|VALUE\s*ADDITION)\]?:?\s*/i, "")
+            .trim();
+          drawStripBox(text, "#f5f3ff", "#c084fc", "💡 UNIQUE KEY / VALUE ADDITION:", "#581c87", "#6b21a8");
           continue;
         }
 
-        // Numbered SUBHEADINGS (1. HEADING IN CAPS)
-        if (/^\d+\.\s+[A-Z]/.test(line)) {
+        // 5. SUBHEADINGS (matches Notion's bold Subheadings: 1. Title)
+        const isSubheading =
+          /^(\d+\.|\bSubheading\s*\d+:?)\s+[A-Za-z]/i.test(clean) ||
+          /<(b|u)>.*?<(b|u)>\s*\d+\./i.test(line) ||
+          /<b>\s*\d+\.\s+[A-Za-z]/i.test(line);
+        if (isSubheading && clean.length < 120 && !clean.endsWith(".")) {
           ensureSpace(1);
           const barTop = curY - LINE_SPACING + 2;
           const barH = LINE_SPACING - 3;
           doc.roundedRect(PAGE_L + 2, barTop, PAGE_W - 4, barH, 2)
              .fillAndStroke("#e8edf5", "#c7d2e8");
           doc.font("Helvetica-Bold").fontSize(10.5).fillColor("#0f172a")
-             .text(line, PAGE_L + 10, barTop + 5, { width: PAGE_W - 20 });
+             .text(clean, PAGE_L + 10, barTop + 5, { width: PAGE_W - 20 });
           curY = _nextLine(curY);
           continue;
         }
 
-        // Bullet points
-        if (/^[•\-]/.test(line)) {
+        // 6. BULLET / NUMBERED POINTS (matches Notion's bulleted list items)
+        const isPoint = /^\d+[\.\)]\s+/.test(clean) || /^[•\-\*]\s+/.test(clean);
+        if (isPoint) {
+          let pointText = clean;
+          if (!/^[•]/.test(pointText)) {
+            pointText = pointText.replace(/^\d+[\.\)]\s*/, "• ").replace(/^[\-\*]\s*/, "• ");
+          }
           doc.font("Helvetica").fontSize(10);
           const textW = PAGE_W - 26;
-          const rawH = doc.heightOfString(line, { width: textW });
+          const rawH = doc.heightOfString(pointText, { width: textW });
           const linesNeeded = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
           ensureSpace(linesNeeded);
           const lineGap = LINE_SPACING - doc.currentLineHeight();
           const textTop = curY - LINE_SPACING + 4;
           doc.font("Helvetica").fontSize(10).fillColor("#334155")
-             .text(line, PAGE_L + 16, textTop, { width: textW, lineGap });
+             .text(pointText, PAGE_L + 16, textTop, { width: textW, lineGap });
           curY = _nextLine(curY, linesNeeded);
           continue;
         }
 
-        // Separator lines ───
-        if (/^─{3,}/.test(line)) continue;
+        // 7. SEPARATOR LINES ───
+        if (/^─{3,}/.test(clean)) continue;
 
-        // Word count line
-        if (/^word count/i.test(line)) {
+        // 8. WORD COUNT LINE
+        if (/^(approx\.?\s*words?|word\s*count)/i.test(clean)) {
           ensureSpace(1);
           const textTop = curY - LINE_SPACING + 5;
           doc.font("Helvetica-Oblique").fontSize(8.5).fillColor("#64748b")
-             .text(line, PAGE_L + 8, textTop, { width: PAGE_W - 16, align: "right" });
+             .text(clean, PAGE_L + 8, textTop, { width: PAGE_W - 16, align: "right" });
           curY = _nextLine(curY);
           continue;
         }
 
-        // Regular paragraph text (Introduction body, Conclusion body)
+        // 9. REGULAR PARAGRAPH TEXT (Introduction body, Conclusion body)
         doc.font("Helvetica").fontSize(10);
         const textW = PAGE_W - 16;
-        const rawH = doc.heightOfString(line, { width: textW });
+        const rawH = doc.heightOfString(clean, { width: textW });
         const linesNeeded = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
         ensureSpace(linesNeeded);
         const lineGap = LINE_SPACING - doc.currentLineHeight();
         const textTop = curY - LINE_SPACING + 4;
         doc.font("Helvetica").fontSize(10).fillColor("#1e293b")
-           .text(line, PAGE_L + 8, textTop, { width: textW, lineGap });
+           .text(clean, PAGE_L + 8, textTop, { width: textW, lineGap });
         curY = _nextLine(curY, linesNeeded);
       }
 

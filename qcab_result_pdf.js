@@ -81,9 +81,9 @@ function generateMarkedCoverPdf({ question, marks, topic, paperCode = "Paper II"
       const qY = 108;
       doc.lineWidth(0.8).rect(40, qY, 345, 28).stroke(C.red);
       doc.font("Helvetica-Bold").fontSize(8).fillColor(C.red)
-         .text(`Q.NO. ${qNum} — ${marks} MARKS | TOPIC: ${topic}`, 48, qY + 5, { width: 328 });
+         .text(`Q.NO. ${qNum} — ${marks} MARKS | TOPIC: ${_sanitizeForPdf(topic)}`, 48, qY + 5, { width: 328 });
       doc.font("Helvetica").fontSize(7.5).fillColor(C.dark)
-         .text(question, 48, qY + 17, { width: 328, lineBreak: false });
+         .text(_sanitizeForPdf(question), 48, qY + 17, { width: 328, lineBreak: false });
 
       // ── CRITERIA BREAKDOWN TABLE ─────────────────────────────────
       let tY = 200;
@@ -122,7 +122,7 @@ function generateMarkedCoverPdf({ question, marks, topic, paperCode = "Paper II"
         doc.font("Helvetica").fontSize(7.5).fillColor(C.slate)
            .text(`${maxM}`, 450, rowY + 6, { align: "center", width: 40 });
         doc.font("Helvetica-Oblique").fontSize(6.5).fillColor(C.slate)
-           .text(comment, 500, rowY + 5, { width: 48, lineBreak: false });
+           .text(_sanitizeForPdf(comment), 500, rowY + 5, { width: 48, lineBreak: false });
         rowY += 20;
       });
 
@@ -146,7 +146,7 @@ function generateMarkedCoverPdf({ question, marks, topic, paperCode = "Paper II"
       const feedbackH = 70;
       doc.lineWidth(0.5).rect(40, rowY, 515, feedbackH).stroke(color);
       doc.font("Helvetica").fontSize(8).fillColor(C.dark)
-         .text(overall_feedback || "—", 48, rowY + 8, { width: 499, lineGap: 2 });
+         .text(_sanitizeForPdf(overall_feedback) || "—", 48, rowY + 8, { width: 499, lineGap: 2 });
       rowY += feedbackH + 12;
 
       // ── Examiner Signature Box ───────────────────────────────────
@@ -161,8 +161,12 @@ function generateMarkedCoverPdf({ question, marks, topic, paperCode = "Paper II"
 
       // ── Model Answer Note ────────────────────────────────────────
       doc.rect(40, rowY, 515, 22).fillAndStroke("#eff6ff", C.blue);
+      const docEmojiDrawn = _drawEmoji(doc, "doc", 152, rowY + 5.5, 11);
       doc.font("Helvetica-Bold").fontSize(8).fillColor(C.blue)
-         .text("📄 MODEL ANSWER IS ATTACHED ON THE FOLLOWING PAGES", 45, rowY + 7, { align: "center", width: 505 });
+         .text("MODEL ANSWER IS ATTACHED ON THE FOLLOWING PAGES", docEmojiDrawn ? 168 : 45, rowY + 7, {
+           align: docEmojiDrawn ? "left" : "center",
+           width: docEmojiDrawn ? 360 : 505,
+         });
 
       doc.end();
       ws.on("finish", () => resolve(filePath));
@@ -223,6 +227,84 @@ function _drawLinedPage(doc, { paperCode, pageNum, totalPages, stripText, endY =
 
 // ── HELPER: advance curY to next line boundary ────────────────────
 function _nextLine(curY, n = 1) { return curY + n * LINE_SPACING; }
+
+// ── HELPER: Sanitize text for PDFKit WinAnsi fonts (prevents Ø=Ü; corruption) ──
+function _sanitizeForPdf(text) {
+  if (!text) return "";
+  return text
+    .replace(/[\u2023\u25E6\u2043\u2219]/g, "•")
+    .replace(/[\u{1F000}-\u{1FFFF}]/gu, "")
+    .replace(/[\u{2600}-\u{26FF}]/gu, "")
+    .replace(/[\u{2700}-\u{27BF}]/gu, "")
+    .replace(/[\u{FE00}-\u{FE0F}]/gu, "")
+    .replace(/[\u{1F300}-\u{1F5FF}]/gu, "")
+    .replace(/[\u{1F600}-\u{1F64F}]/gu, "")
+    .replace(/[\u{1F680}-\u{1F6FF}]/gu, "")
+    .replace(/[\u{1F900}-\u{1F9FF}]/gu, "")
+    .replace(/[\u{1FA00}-\u{1FAFF}]/gu, "")
+    .replace(/[⚡💡📌⭐🔴▶✅⛔✓📄]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// ── HELPER: Real emoji image renderer (Twemoji PNG assets) ─────────
+const EMOJI_DIR = path.join(__dirname, "assets", "emojis");
+function _drawEmoji(doc, name, x, y, size = 11) {
+  const p = path.join(EMOJI_DIR, `${name}.png`);
+  if (fs.existsSync(p)) {
+    try {
+      doc.image(p, x, y, { width: size, height: size });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+// ── HELPER: Vector icons (crisp vector graphics, zero font corruption) ──
+function _drawLightning(doc, x, y, color = "#d97706") {
+  doc.save();
+  doc.fillColor(color);
+  doc.moveTo(x + 5, y)
+     .lineTo(x + 1, y + 5)
+     .lineTo(x + 4.5, y + 5)
+     .lineTo(x + 2.5, y + 10)
+     .lineTo(x + 7.5, y + 4.5)
+     .lineTo(x + 4.5, y + 4.5)
+     .fill();
+  doc.restore();
+}
+
+function _drawBulb(doc, x, y, color = "#9333ea") {
+  doc.save();
+  doc.fillColor(color);
+  doc.circle(x + 4.5, y + 3.8, 3.5).fill();
+  doc.rect(x + 3.2, y + 6.5, 2.6, 2.5).fill();
+  doc.fillColor("#ffffff").circle(x + 4.5, y + 3.5, 1.2).fill();
+  doc.restore();
+}
+
+function _drawArrow(doc, x, y, color = "#ffffff") {
+  doc.save();
+  doc.fillColor(color);
+  doc.moveTo(x, y)
+     .lineTo(x + 6, y + 3.5)
+     .lineTo(x, y + 7)
+     .fill();
+  doc.restore();
+}
+
+function _drawCheck(doc, x, y, color = "#15803d") {
+  doc.save();
+  doc.circle(x + 5, y + 5, 5).fill(color);
+  doc.lineWidth(1.2).strokeColor("#ffffff");
+  doc.moveTo(x + 2.5, y + 5)
+     .lineTo(x + 4.5, y + 7)
+     .lineTo(x + 7.5, y + 3)
+     .stroke();
+  doc.restore();
+}
 
 // ── MAIN FUNCTION ─────────────────────────────────────────────────
 function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II", qNum = 1, modelAnswer }) {
@@ -288,10 +370,11 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
       }
 
       // ── Helper: draw a coloured callout box over the lines ───────
-      function drawStripBox(text, bgColor, borderColor, labelText, textColor, labelColor) {
+      function drawStripBox(text, bgColor, borderColor, labelText, textColor, labelColor, emojiName) {
         doc.font("Helvetica").fontSize(9.5);
         const textW = PAGE_W - 20;
-        const rawH = doc.heightOfString(text, { width: textW });
+        const cleanBody = _sanitizeForPdf(text);
+        const rawH = doc.heightOfString(cleanBody, { width: textW });
         const textLines = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
         const linesNeeded = textLines > 2 ? 3 : 2;
         ensureSpace(linesNeeded);
@@ -300,10 +383,21 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
         const boxTop = curY - LINE_SPACING + 2;
         doc.roundedRect(PAGE_L + 2, boxTop, PAGE_W - 4, boxH, 3)
            .fillAndStroke(bgColor, borderColor);
+
+        // Draw real emoji image (or fallback crisp vector icon)
+        const emojiX = PAGE_L + 8;
+        const emojiY = boxTop + 4;
+        const drew = _drawEmoji(doc, emojiName, emojiX, emojiY, 11);
+        if (!drew) {
+          if (emojiName === "lightning") _drawLightning(doc, emojiX, emojiY, "#d97706");
+          else if (emojiName === "bulb") _drawBulb(doc, emojiX, emojiY, "#9333ea");
+        }
+
         doc.font("Helvetica-Bold").fontSize(9).fillColor(labelColor)
-           .text(labelText, PAGE_L + 8, boxTop + 4, { width: textW });
+           .text(labelText, PAGE_L + 23, boxTop + 4, { width: textW - 17 });
+
         doc.font("Helvetica").fontSize(9.5).fillColor(textColor)
-           .text(text, PAGE_L + 8, boxTop + 16, { width: textW, lineGap: 1.5 });
+           .text(cleanBody, PAGE_L + 8, boxTop + 16, { width: textW, lineGap: 1.5 });
         curY = _nextLine(curY, linesNeeded);
       }
 
@@ -325,8 +419,9 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
           const barH = LINE_SPACING - 3;
           doc.roundedRect(PAGE_L + 2, barTop, PAGE_W - 4, barH, 2)
              .fillAndStroke("#1e3a5f", "#1e3a5f");
+          _drawArrow(doc, PAGE_L + 10, barTop + 6, "#ffffff");
           doc.font("Helvetica-Bold").fontSize(11).fillColor("#ffffff")
-             .text("▶  INTRODUCTION", PAGE_L + 10, barTop + 5, { width: PAGE_W - 20 });
+             .text("INTRODUCTION", PAGE_L + 20, barTop + 4, { width: PAGE_W - 30 });
           curY = _nextLine(curY);
           continue;
         }
@@ -340,8 +435,9 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
           const barH = LINE_SPACING - 3;
           doc.roundedRect(PAGE_L + 2, barTop, PAGE_W - 4, barH, 2)
              .fillAndStroke("#14532d", "#14532d");
+          _drawArrow(doc, PAGE_L + 10, barTop + 6, "#ffffff");
           doc.font("Helvetica-Bold").fontSize(11).fillColor("#ffffff")
-             .text("▶  CONCLUSION", PAGE_L + 10, barTop + 5, { width: PAGE_W - 20 });
+             .text("CONCLUSION", PAGE_L + 20, barTop + 4, { width: PAGE_W - 30 });
           curY = _nextLine(curY);
           continue;
         }
@@ -355,7 +451,7 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
             .replace(/^[\s⚡📰📌]+/, "")
             .replace(/^\[?(CURRENT\s*AFFAIRS(\s*\/\s*CORE\s*FOCUS)?(\s*BOX)?)\]?:?\s*/i, "")
             .trim() || "Recent policy context relevant to this topic.";
-          drawStripBox(text, "#fef3c7", "#f59e0b", "⚡ CURRENT AFFAIRS / CORE FOCUS:", "#78350f", "#92400e");
+          drawStripBox(text, "#fef3c7", "#f59e0b", "CURRENT AFFAIRS / CORE FOCUS:", "#78350f", "#92400e", "lightning");
           continue;
         }
 
@@ -369,7 +465,7 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
             .replace(/^[\s💡⭐🔴]+/, "")
             .replace(/^\[?(UNIQUE\s*KEY(\s*\/\s*VALUE\s*ADDITION)?|VALUE\s*ADDITION)\]?:?\s*/i, "")
             .trim();
-          drawStripBox(text, "#f5f3ff", "#c084fc", "💡 UNIQUE KEY / VALUE ADDITION:", "#581c87", "#6b21a8");
+          drawStripBox(text, "#f5f3ff", "#c084fc", "UNIQUE KEY / VALUE ADDITION:", "#581c87", "#6b21a8", "bulb");
           continue;
         }
 
@@ -384,8 +480,9 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
           const barH = LINE_SPACING - 3;
           doc.roundedRect(PAGE_L + 2, barTop, PAGE_W - 4, barH, 2)
              .fillAndStroke("#e8edf5", "#c7d2e8");
+          const cleanSub = _sanitizeForPdf(clean);
           doc.font("Helvetica-Bold").fontSize(10.5).fillColor("#0f172a")
-             .text(clean, PAGE_L + 10, barTop + 5, { width: PAGE_W - 20 });
+             .text(cleanSub, PAGE_L + 10, barTop + 5, { width: PAGE_W - 20 });
           curY = _nextLine(curY);
           continue;
         }
@@ -397,15 +494,16 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
           if (!/^[•]/.test(pointText)) {
             pointText = pointText.replace(/^\d+[\.\)]\s*/, "• ").replace(/^[\-\*]\s*/, "• ");
           }
+          const cleanPt = _sanitizeForPdf(pointText);
           doc.font("Helvetica").fontSize(10);
           const textW = PAGE_W - 26;
-          const rawH = doc.heightOfString(pointText, { width: textW });
+          const rawH = doc.heightOfString(cleanPt, { width: textW });
           const linesNeeded = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
           ensureSpace(linesNeeded);
           const lineGap = LINE_SPACING - doc.currentLineHeight();
           const textTop = curY - LINE_SPACING + 4;
           doc.font("Helvetica").fontSize(10).fillColor("#334155")
-             .text(pointText, PAGE_L + 16, textTop, { width: textW, lineGap });
+             .text(cleanPt, PAGE_L + 16, textTop, { width: textW, lineGap });
           curY = _nextLine(curY, linesNeeded);
           continue;
         }
@@ -417,22 +515,24 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
         if (/^(approx\.?\s*words?|word\s*count)/i.test(clean)) {
           ensureSpace(1);
           const textTop = curY - LINE_SPACING + 5;
+          const cleanWc = _sanitizeForPdf(clean);
           doc.font("Helvetica-Oblique").fontSize(8.5).fillColor("#64748b")
-             .text(clean, PAGE_L + 8, textTop, { width: PAGE_W - 16, align: "right" });
+             .text(cleanWc, PAGE_L + 8, textTop, { width: PAGE_W - 16, align: "right" });
           curY = _nextLine(curY);
           continue;
         }
 
         // 9. REGULAR PARAGRAPH TEXT (Introduction body, Conclusion body)
+        const cleanPara = _sanitizeForPdf(clean);
         doc.font("Helvetica").fontSize(10);
         const textW = PAGE_W - 16;
-        const rawH = doc.heightOfString(clean, { width: textW });
+        const rawH = doc.heightOfString(cleanPara, { width: textW });
         const linesNeeded = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
         ensureSpace(linesNeeded);
         const lineGap = LINE_SPACING - doc.currentLineHeight();
         const textTop = curY - LINE_SPACING + 4;
         doc.font("Helvetica").fontSize(10).fillColor("#1e293b")
-           .text(clean, PAGE_L + 8, textTop, { width: textW, lineGap });
+           .text(cleanPara, PAGE_L + 8, textTop, { width: textW, lineGap });
         curY = _nextLine(curY, linesNeeded);
       }
 
@@ -445,8 +545,10 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
       const finalEndY = endYForPage(pageIdx);
       const bannerY   = finalEndY + 6;
       doc.roundedRect(PAGE_L, bannerY, PAGE_W, 24, 3).fillAndStroke("#f0fdf4", "#15803d");
+      const checkDrawn = _drawEmoji(doc, "check", PAGE_L + 115, bannerY + 6, 12);
+      if (!checkDrawn) _drawCheck(doc, PAGE_L + 115, bannerY + 6.5, "#15803d");
       doc.font("Helvetica-Bold").fontSize(9).fillColor("#14532d")
-         .text("✅ END OF MODEL ANSWER  —  TNPSC 12-RULE FORMAT", PAGE_L + 4, bannerY + 7, { align: "center", width: PAGE_W - 8 });
+         .text("END OF MODEL ANSWER  —  TNPSC 12-RULE FORMAT", PAGE_L + 132, bannerY + 7);
 
       doc.end();
       ws.on("finish", () => resolve(filePath));

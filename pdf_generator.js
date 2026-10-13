@@ -261,10 +261,11 @@ function drawQCABCoverPage(doc, { marks, question, topic, paperCode, qNum, date 
   curY += 26;
 
   // ── SECTION 5: Question Box ──────────────────────────────────
-  const estLines  = Math.ceil(question.length / 63);
-  const qBoxH     = Math.max(52, estLines * 14 + 20);
+  doc.font("Helvetica-Bold").fontSize(9);
+  const measuredH = doc.heightOfString(question, { width: W - 20, lineGap: 2 });
+  const qBoxH     = Math.max(50, Math.ceil(measuredH + 18));
   doc.lineWidth(0.8).rect(L + 4, curY, W - 8, qBoxH).stroke("#334155");
-  doc.font("Helvetica-Bold").fontSize(9).fillColor("#0f172a")
+  doc.fillColor("#0f172a")
      .text(question, L + 10, curY + 8, { width: W - 20, lineGap: 2 });
   curY += qBoxH + 4;
 

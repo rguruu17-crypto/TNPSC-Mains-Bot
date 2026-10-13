@@ -1,7 +1,7 @@
 const path = require("path");
 const fs = require("fs");
 const { execSync } = require("child_process");
-const { generateModelAnswerPdf } = require("./qcab_result_pdf");
+const { generateModelAnswerPdf, generateMarkedCoverPdf } = require("./qcab_result_pdf");
 
 const SAMPLE_ANSWER = `INTRODUCTION
 Subramanya Bharathiyar and Subramanya Siva were seminal figures in Tamil Nadu's freedom struggle whose complementary talents—Bharathiyar through literary awakening and Siva through oratorical mass mobilization—transformed the anti-colonial resistance into a genuine mass movement.
@@ -44,18 +44,50 @@ async function main() {
     modelAnswer: SAMPLE_ANSWER,
   });
 
-  console.log(`✅ PDF created: ${pdfPath}`);
+  console.log(`✅ Model Answer PDF created: ${pdfPath}`);
+
+  console.log("📄 Generating sample evaluated cover PDF...");
+  const coverPdfPath = await generateMarkedCoverPdf({
+    question: "Examine the role of the Justice Party in laying the foundation of social justice and affirmative action in Tamil Nadu.",
+    marks: 15,
+    topic: "Examine the role of the Justice...",
+    paperCode: "Paper II",
+    qNum: 1,
+    evaluation: {
+      total_marks: 8,
+      max_marks: 15,
+      word_count_estimate: 210,
+      overall_feedback: "Well-structured answer with good points on Communal G.O. (1921 & 1922) and provincial education acts. Could incorporate more administrative details.",
+      evaluation: {
+        introduction: { marks_awarded: 2, max_marks: 3, comment: "Clear background of the Justice Party" },
+        body: { marks_awarded: 3.5, max_marks: 7, comment: "Detailed affirmative policies" },
+        conclusion: { marks_awarded: 1, max_marks: 2, comment: "Good link to modern TN reservation policy" },
+        format: { marks_awarded: 1, max_marks: 1.5, comment: "Followed 12 rules" },
+        language: { marks_awarded: 0.5, max_marks: 1.5, comment: "Clear and standard English" }
+      }
+    }
+  });
+  console.log(`✅ Evaluated Cover PDF created: ${coverPdfPath}`);
 
   // Convert pages to PNG using PyMuPDF
-  const artifactDir = "C:\\Users\\GURUPRASATH\\.gemini\\antigravity-ide\\brain\\68cdeffa-357c-4297-b104-38cddf5628d9";
+  const artifactDir = "C:/Users/GURUPRASATH/.gemini/antigravity-ide/brain/473ba8b2-9c0a-43d1-bad1-a8c7b316d708";
   const pyScript = `
-import fitz
-doc = fitz.open(r"${pdfPath}")
+import pymupdf
+
+# Render Model Answer pages
+doc = pymupdf.open(r"${pdfPath}")
 for i, page in enumerate(doc):
     pix = page.get_pixmap(dpi=150)
-    out_name = f"${artifactDir.replace(/\\/g, '/')}/sample_model_answer_p{i+1}.png"
+    out_name = f"${artifactDir}/sample_model_answer_p{i+1}.png"
     pix.save(out_name)
     print(f"Saved: {out_name}")
+
+# Render Cover page
+doc_cover = pymupdf.open(r"${coverPdfPath}")
+pix_cover = doc_cover[0].get_pixmap(dpi=150)
+cover_out_name = f"${artifactDir}/sample_cover_page.png"
+pix_cover.save(cover_out_name)
+print(f"Saved: {cover_out_name}")
 `;
 
   fs.writeFileSync("render_pages.py", pyScript);

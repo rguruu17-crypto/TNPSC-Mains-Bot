@@ -85,17 +85,31 @@ function generateMarkedCoverPdf({ question, marks, topic, paperCode = "Paper II"
          .text(label, badgeX, badgeY + 65, { align: "center", width: badgeW });
 
       // ── Question block ──────────────────────────────────────────
-      const qY = 108;
-      doc.lineWidth(0.8).rect(40, qY, 345, 28).stroke(C.red);
+      const qX = 40, qY = 108, qW = 345;
+      const textInnerW = qW - 16;
+      const qTopicText = `Q.NO. ${qNum} — ${marks} MARKS | TOPIC: ${_sanitizeForPdf(topic)}`;
+      const cleanQuestion = _sanitizeForPdf(question);
+
+      doc.font("Helvetica-Bold").fontSize(8);
+      const topicH = doc.heightOfString(qTopicText, { width: textInnerW });
+      doc.font("Helvetica").fontSize(8);
+      const questionH = doc.heightOfString(cleanQuestion, { width: textInnerW, lineGap: 2 });
+
+      const padY = 8;
+      const contentH = padY + topicH + 5 + questionH + padY;
+      const qH = Math.max(badgeH, Math.ceil(contentH));
+
+      doc.lineWidth(0.8).rect(qX, qY, qW, qH).stroke(C.red);
       doc.font("Helvetica-Bold").fontSize(8).fillColor(C.red)
-         .text(`Q.NO. ${qNum} — ${marks} MARKS | TOPIC: ${_sanitizeForPdf(topic)}`, 48, qY + 5, { width: 328 });
-      doc.font("Helvetica").fontSize(7.5).fillColor(C.dark)
-         .text(_sanitizeForPdf(question), 48, qY + 17, { width: 328, lineBreak: false });
+         .text(qTopicText, qX + 8, qY + padY, { width: textInnerW });
+      doc.font("Helvetica").fontSize(8).fillColor(C.dark)
+         .text(cleanQuestion, qX + 8, qY + padY + topicH + 5, { width: textInnerW, lineGap: 2 });
 
       // ── CRITERIA BREAKDOWN TABLE ─────────────────────────────────
-      let tY = 200;
+      const boxBottom = Math.max(badgeY + badgeH, qY + qH);
+      let tY = boxBottom + 26;
       doc.font("Helvetica-Bold").fontSize(9).fillColor(C.dark)
-         .text("EVALUATION CRITERIA BREAKDOWN", 40, tY - 14);
+         .text("EVALUATION CRITERIA BREAKDOWN", 40, tY - 12);
       doc.lineWidth(0.5).rect(40, tY, 515, 18).fillAndStroke(C.dark, C.dark);
       doc.font("Helvetica-Bold").fontSize(8).fillColor("#ffffff")
          .text("CRITERIA", 48, tY + 5)
@@ -390,7 +404,7 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
         const textW = PAGE_W - 20;
         const cleanBody = _sanitizeForPdf(text);
         const rawH = doc.heightOfString(cleanBody, { width: textW });
-        const textLines = Math.max(1, Math.ceil(rawH / doc.currentLineHeight()));
+        const textLines = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
         const linesNeeded = 1 + textLines;
         ensureSpace(linesNeeded);
 
@@ -510,7 +524,7 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
           doc.font(fontHand).fontSize(10.5);
           const textW = PAGE_W - 28;
           const rawH = doc.heightOfString(cleanPt, { width: textW });
-          const linesNeeded = Math.max(1, Math.ceil(rawH / doc.currentLineHeight()));
+          const linesNeeded = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
           ensureSpace(linesNeeded);
           const lineGap = LINE_SPACING - doc.currentLineHeight();
           const textTop = curY - LINE_SPACING + 4;

@@ -188,7 +188,7 @@ function formatPipelineHTML(pipeline) {
 
 
 // Typical TNPSC Mains word limits by marks
-const WORDS_BY_MARKS = { 5: 80, 10: 150, 15: 300, 20: 350 };
+const WORDS_BY_MARKS = { 5: 80, 10: 150, 15: 250, 20: 350 };
 const wordsFor = (m) => WORDS_BY_MARKS[m] || m * 20;
 
 // In-memory sessions per chat: { question, marks, words, answer, evaluation, modelAnswer, topic, unitId, isPYQ }
@@ -433,11 +433,13 @@ function getUnitsForPaperKeyboard(paperKey) {
 // Step 3: Enter Topic or Suggest
 function getTopicPromptKeyboard(unitId) {
   return new InlineKeyboard()
-    .text("⚡ Auto-Generate Q&A to Notion (Instant)", `auto:${unitId}`)
+    .text("📜 Authentic PYQ (15 Marks • 2 ½p)", `pyqunit:${unitId}:15`)
+    .text("📜 Authentic PYQ (10 Marks • 1 ½p)", `pyqunit:${unitId}:10`)
+    .row()
+    .text("✍️ Practice Q (15 Marks • 2 ½p)", `auto:${unitId}:15`)
+    .text("✍️ Practice Q (10 Marks • 1 ½p)", `auto:${unitId}:10`)
     .row()
     .text("🎲 Suggest a Topic from Syllabus", `suggest:${unitId}`)
-    .row()
-    .text("📜 Generate Official TNPSC PYQ + Answer", `pyqunit:${unitId}`)
     .row()
     .text("⏱️ 12-Min Mock Exam for this Unit", `mockunit:${unitId}`)
     .row()
@@ -1047,7 +1049,7 @@ function formatSyllabusProgressHTML(status) {
 // ─────────────────────────────────────────────────────────────
 
 // Handler: Auto-generate BOTH Question and 12-Rule Model Answer, and save directly to Notion with Animation
-async function handleAutoGenerateQA(ctx, topic, marks = 15, unitId = null, isPYQ = false) {
+async function handleAutoGenerateQA(ctx, topic, marks = 15, unitId = null, isPYQ = false, deliverQCAB = true) {
   const anim = await createProgressAnimator(ctx, isPYQ ? "TNPSC PYQ GENERATOR" : "TNPSC Q&A GENERATOR");
 
   try {
@@ -1144,7 +1146,39 @@ async function handleAutoGenerateQA(ctx, topic, marks = 15, unitId = null, isPYQ
     });
     await ctx.reply(qCard, { parse_mode: "HTML" });
 
-    // Part 2: Modern Model Answer + Notion Banner
+    // Part 2: Deliver Official TNPSC QCAB Answer Booklet PDF
+    if (deliverQCAB) {
+      try {
+        const paperCode = found ? found.paper.paperCode : "Paper II";
+        const pageAllotted = marks === 10 ? "1 ½" : "2 ½";
+        const timeMins = marks === 10 ? 8 : 12;
+        const pdfPath = await generateQCABPdf({
+          question: q,
+          marks,
+          topic: res?.topicName || topic,
+          paperCode,
+        });
+        const fileName = `TNPSC_QCAB_${marks}M_${Date.now().toString().slice(-4)}.pdf`;
+        await ctx.replyWithDocument(new InputFile(pdfPath, fileName), {
+          caption: [
+            `📑 <b>OFFICIAL TNPSC QCAB ANSWER BOOKLET</b>`,
+            `────────────────────────────────────`,
+            `🏛️ <b>Standard:</b> Group-1 Mains (${paperCode})`,
+            `⚖️ <b>Weightage:</b> ${marks} Marks • ~${words} Words`,
+            `📄 <b>QCAB Allotment:</b> Exactly ${pageAllotted} Pages`,
+            `⏱️ <b>Time Limit:</b> ${timeMins} Minutes`,
+            `⛔ <b>Official Cutoff:</b> Lined guide stops at ${pageAllotted} pages + Examiner Matrix`,
+            `────────────────────────────────────`,
+            `🖨️ <i>Print this booklet, write your answer with a ballpoint pen within ${timeMins} minutes, and upload a photo for evaluation!</i>`,
+          ].join("\n"),
+          parse_mode: "HTML",
+        });
+      } catch (qcabErr) {
+        console.error("Auto QCAB delivery error:", qcabErr);
+      }
+    }
+
+    // Part 3: Modern Model Answer + Notion Banner
     let footer = "";
     if (notionUrl) {
       footer = "\n\n" + formatModernNotionSyncBanner({
@@ -1642,10 +1676,12 @@ bot.callbackQuery(/^unit:(.+)$/, async (ctx) => {
   });
 });
 
-// Step 3 (Option A): User taps "Auto-Generate Q&A to Notion (Instant)"
+// Step 3 (Option A): User taps "Practice Q"
 bot.callbackQuery(/^auto:(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery().catch(() => {});
-  const unitId = ctx.match[1];
+  const parts = ctx.match[1].split(":");
+  const unitId = parts[0];
+  const marks = parts[1] ? parseInt(parts[1], 10) : 15;
   const found = findUnitById(unitId);
   if (!found) return;
 
@@ -1654,7 +1690,7 @@ bot.callbackQuery(/^auto:(.+)$/, async (ctx) => {
 
   const item = getRandomTopic(null, unit.filterKey);
   const fullTopic = `${paper.paperTitle} - ${unit.shortName}: ${item.topic}`;
-  await handleAutoGenerateQA(ctx, fullTopic, 15, unit.id, false);
+  await handleAutoGenerateQA(ctx, fullTopic, marks, unit.id, false, true);
 });
 
 // Step 3 (Option B): User taps "Suggest Topic from Syllabus"
@@ -1669,13 +1705,15 @@ bot.callbackQuery(/^suggest:(.+)$/, async (ctx) => {
 
   const item = getRandomTopic(null, unit.filterKey);
   const fullTopic = `${paper.paperTitle} - ${unit.shortName}: ${item.topic}`;
-  await handleAutoGenerateQA(ctx, fullTopic, 15, unit.id, false);
+  await handleAutoGenerateQA(ctx, fullTopic, 15, unit.id, false, true);
 });
 
 // Step 3 (Option C): User taps "Generate Official TNPSC PYQ + Answer"
 bot.callbackQuery(/^pyqunit:(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery().catch(() => {});
-  const unitId = ctx.match[1];
+  const parts = ctx.match[1].split(":");
+  const unitId = parts[0];
+  const marks = parts[1] ? parseInt(parts[1], 10) : 15;
   const found = findUnitById(unitId);
   if (!found) return;
 
@@ -1684,7 +1722,72 @@ bot.callbackQuery(/^pyqunit:(.+)$/, async (ctx) => {
 
   const item = getRandomTopic(null, unit.filterKey);
   const fullTopic = `${paper.paperTitle} - ${unit.shortName}: ${item.topic}`;
-  await handleAutoGenerateQA(ctx, fullTopic, 15, unit.id, true);
+  await handleAutoGenerateQA(ctx, fullTopic, marks, unit.id, true, true);
+});
+
+// Step 4: User selected Question Type & Marks for custom entered topic
+bot.callbackQuery(/^gen_topic:(pyq|own|blank):(10|15)$/, async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const type = ctx.match[1];
+  const marks = parseInt(ctx.match[2], 10);
+  const st = userState.get(ctx.chat.id);
+  if (!st || !st.enteredTopic) {
+    return ctx.reply("⚠️ Session expired. Please select a paper and unit:", {
+      reply_markup: getPapersInlineKeyboard(),
+    });
+  }
+
+  const topicName = st.enteredTopic;
+  const fullTopic = `${st.paperTitle} - ${st.unitName}: ${topicName}`;
+  const unitId = st.unitId;
+  userState.delete(ctx.chat.id);
+
+  if (type === "blank") {
+    const found = unitId ? findUnitById(unitId) : null;
+    const paperCode = found ? found.paper.paperCode : "Paper II";
+    const pageAllotted = marks === 10 ? "1 ½" : "2 ½";
+    const timeMins = marks === 10 ? 8 : 12;
+    const words = marks === 10 ? 150 : 250;
+    const anim = await createProgressAnimator(ctx, "TNPSC QCAB COMPILER");
+    try {
+      await anim.step("📑 [1/2] Drafting Official Examination Booklet...", 50, "Formatting margins, barcode box & guidelines...");
+      const pdfPath = await generateQCABPdf({
+        question: `Write an analytical answer on: "${topicName}" adhering to official TNPSC 12-rule standards.`,
+        marks,
+        topic: topicName,
+        paperCode,
+      });
+      await anim.step("🖨️ [2/2] Exporting High-Resolution Printable PDF...", 90, "Finalizing page coordinates...");
+      await anim.delete();
+      const fileName = `TNPSC_QCAB_${marks}M_${Date.now().toString().slice(-4)}.pdf`;
+      return ctx.replyWithDocument(new InputFile(pdfPath, fileName), {
+        caption: [
+          `📑 <b>OFFICIAL TNPSC QCAB ANSWER BOOKLET</b>`,
+          `────────────────────────────────────`,
+          `🏛️ <b>Standard:</b> Group-1 Mains (${paperCode})`,
+          `⚖️ <b>Weightage:</b> ${marks} Marks • ~${words} Words`,
+          `📄 <b>QCAB Allotment:</b> Exactly ${pageAllotted} Pages`,
+          `⏱️ <b>Time Limit:</b> ${timeMins} Minutes`,
+          `🎯 <b>Topic:</b> ${topicName}`,
+          `⛔ <b>Official Cutoff:</b> Lined guide stops at ${pageAllotted} pages + Examiner Matrix`,
+          `────────────────────────────────────`,
+          `🖨️ <i>Print this booklet, write your answer with a ballpoint pen within ${timeMins} minutes, and upload a photo for evaluation!</i>`,
+        ].join("\n"),
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard()
+          .text("📜 Generate PYQ for this Topic", `gen_topic:pyq:${marks}`)
+          .text("✍️ Generate Practice Question", `gen_topic:own:${marks}`)
+          .row()
+          .text("📚 Unit Menu", unitId ? `unit:${unitId}` : "action:pick_topic"),
+      });
+    } catch (err) {
+      await anim.delete();
+      return ctx.reply(`⚠️ QCAB generation error: ${err.message}`);
+    }
+  }
+
+  const isPYQ = type === "pyq";
+  await handleAutoGenerateQA(ctx, fullTopic, marks, unitId, isPYQ, true);
 });
 
 // Auto-generate for ALL 9 Units across GS1, GS2, and GS3
@@ -2075,13 +2178,48 @@ bot.callbackQuery("budget:sectors", async (ctx) => {
 bot.on("message:text", async (ctx) => {
   if (ctx.message.text.startsWith("/")) return;
 
-  // 1. If user is in "WAITING_FOR_TOPIC" state, generate question and model answer for the entered topic!
+  // 1. If user is in "WAITING_FOR_TOPIC" state, prompt user to choose Question Type (PYQ vs Practice Question) & Marks (10M vs 15M)
   const st = userState.get(ctx.chat.id);
   if (st && st.state === "WAITING_FOR_TOPIC") {
     const enteredTopic = ctx.message.text.trim();
-    userState.delete(ctx.chat.id);
-    const fullTopic = `${st.paperTitle} - ${st.unitName}: ${enteredTopic}`;
-    return handleAutoGenerateQA(ctx, fullTopic, 15, st.unitId, false);
+    userState.set(ctx.chat.id, {
+      ...st,
+      state: "CHOOSE_QUESTION_TYPE",
+      enteredTopic,
+    });
+
+    const choiceText = [
+      `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+      `┃  🏛️ <b>TNPSC QCAB & QUESTION ARCHITECT</b>`,
+      `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+      `📚 <b>Paper:</b> ${st.paperTitle}`,
+      `🏛️ <b>Unit:</b> <i>${st.unitName}</i>`,
+      `🎯 <b>Entered Topic:</b> <code>${enteredTopic}</code>`,
+      ``,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `⚖️ <b>Select Question Type & QCAB Allotment:</b>`,
+      `• <b>10 Marks:</b> Exactly <b>1 ½ Pages</b> (~150 Words • 8 Mins)`,
+      `• <b>15 Marks:</b> Exactly <b>2 ½ Pages</b> (~250 Words • 12 Mins)`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `👉 <i>Select an option below to generate the Question and download your Official QCAB Booklet PDF:</i>`,
+    ].join("\n");
+
+    const kb = new InlineKeyboard()
+      .text("📜 Authentic PYQ (10 Marks • 1 ½p)", "gen_topic:pyq:10")
+      .text("📜 Authentic PYQ (15 Marks • 2 ½p)", "gen_topic:pyq:15")
+      .row()
+      .text("✍️ Own Practice Q (10 Marks • 1 ½p)", "gen_topic:own:10")
+      .text("✍️ Own Practice Q (15 Marks • 2 ½p)", "gen_topic:own:15")
+      .row()
+      .text("📑 Blank QCAB (10 Marks • 1 ½p)", "gen_topic:blank:10")
+      .text("📑 Blank QCAB (15 Marks • 2 ½p)", "gen_topic:blank:15")
+      .row()
+      .text("⬅️ Change Topic / Unit", st.unitId ? `unit:${st.unitId}` : "action:pick_topic");
+
+    return ctx.reply(choiceText, {
+      parse_mode: "HTML",
+      reply_markup: kb,
+    });
   }
 
   // 1A. Handle Editorial Input

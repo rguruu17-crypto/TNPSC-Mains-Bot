@@ -17,6 +17,13 @@ const OUTPUT_DIR = path.join(__dirname, "data", "generated_pdfs");
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 // ─────────────────────────────────────────────────────────────────
+// HANDWRITING FONTS (Topper Handwritten Style on Ruled Lines)
+// ─────────────────────────────────────────────────────────────────
+const FONT_REGULAR_HAND = path.join(__dirname, "fonts", "Kalam-Regular.ttf");
+const FONT_BOLD_HAND    = path.join(__dirname, "fonts", "Kalam-Bold.ttf");
+const HAS_HAND_FONT     = fs.existsSync(FONT_REGULAR_HAND) && fs.existsSync(FONT_BOLD_HAND);
+
+// ─────────────────────────────────────────────────────────────────
 // COLOUR PALETTE
 // ─────────────────────────────────────────────────────────────────
 const C = {
@@ -320,6 +327,14 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
       const ws = fs.createWriteStream(filePath);
       doc.pipe(ws);
 
+      // Register handwritten fonts (Topper answer sheet handwriting)
+      if (HAS_HAND_FONT) {
+        doc.registerFont("Handwriting", FONT_REGULAR_HAND);
+        doc.registerFont("Handwriting-Bold", FONT_BOLD_HAND);
+      }
+      const fontHand = HAS_HAND_FONT ? "Handwriting" : "Helvetica";
+      const fontHandBold = HAS_HAND_FONT ? "Handwriting-Bold" : "Helvetica-Bold";
+
       // ── Decide page count (same as QCAB booklet writing pages) ──
       const is10       = marks === 10;
       const writePgs   = is10 ? 2 : 3;          // 10M→1½ pages, 15M→2½ pages
@@ -371,7 +386,7 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
 
       // ── Helper: draw a coloured callout box over the lines ───────
       function drawStripBox(text, bgColor, borderColor, labelText, textColor, labelColor, emojiName) {
-        doc.font("Helvetica").fontSize(9.5);
+        doc.font(fontHand).fontSize(10);
         const textW = PAGE_W - 20;
         const cleanBody = _sanitizeForPdf(text);
         const rawH = doc.heightOfString(cleanBody, { width: textW });
@@ -393,10 +408,10 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
           else if (emojiName === "bulb") _drawBulb(doc, emojiX, emojiY, "#9333ea");
         }
 
-        doc.font("Helvetica-Bold").fontSize(9).fillColor(labelColor)
+        doc.font(fontHandBold).fontSize(9.5).fillColor(labelColor)
            .text(labelText, PAGE_L + 23, boxTop + 4, { width: textW - 17 });
 
-        doc.font("Helvetica").fontSize(9.5).fillColor(textColor)
+        doc.font(fontHand).fontSize(10).fillColor(textColor)
            .text(cleanBody, PAGE_L + 8, boxTop + 16, { width: textW, lineGap: 1.5 });
         curY = _nextLine(curY, linesNeeded);
       }
@@ -420,7 +435,7 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
           doc.roundedRect(PAGE_L + 2, barTop, PAGE_W - 4, barH, 2)
              .fillAndStroke("#1e3a5f", "#1e3a5f");
           _drawArrow(doc, PAGE_L + 10, barTop + 6, "#ffffff");
-          doc.font("Helvetica-Bold").fontSize(11).fillColor("#ffffff")
+          doc.font(fontHandBold).fontSize(11).fillColor("#ffffff")
              .text("INTRODUCTION", PAGE_L + 20, barTop + 4, { width: PAGE_W - 30 });
           curY = _nextLine(curY);
           continue;
@@ -436,7 +451,7 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
           doc.roundedRect(PAGE_L + 2, barTop, PAGE_W - 4, barH, 2)
              .fillAndStroke("#14532d", "#14532d");
           _drawArrow(doc, PAGE_L + 10, barTop + 6, "#ffffff");
-          doc.font("Helvetica-Bold").fontSize(11).fillColor("#ffffff")
+          doc.font(fontHandBold).fontSize(11).fillColor("#ffffff")
              .text("CONCLUSION", PAGE_L + 20, barTop + 4, { width: PAGE_W - 30 });
           curY = _nextLine(curY);
           continue;
@@ -481,8 +496,8 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
           doc.roundedRect(PAGE_L + 2, barTop, PAGE_W - 4, barH, 2)
              .fillAndStroke("#e8edf5", "#c7d2e8");
           const cleanSub = _sanitizeForPdf(clean);
-          doc.font("Helvetica-Bold").fontSize(10.5).fillColor("#0f172a")
-             .text(cleanSub, PAGE_L + 10, barTop + 5, { width: PAGE_W - 20 });
+          doc.font(fontHandBold).fontSize(11).fillColor("#0f172a")
+             .text(cleanSub, PAGE_L + 10, barTop + 4, { width: PAGE_W - 20 });
           curY = _nextLine(curY);
           continue;
         }
@@ -495,15 +510,16 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
             pointText = pointText.replace(/^\d+[\.\)]\s*/, "• ").replace(/^[\-\*]\s*/, "• ");
           }
           const cleanPt = _sanitizeForPdf(pointText);
-          doc.font("Helvetica").fontSize(10);
+          doc.font(fontHand).fontSize(10.5);
           const textW = PAGE_W - 26;
           const rawH = doc.heightOfString(cleanPt, { width: textW });
           const linesNeeded = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
           ensureSpace(linesNeeded);
           const lineGap = LINE_SPACING - doc.currentLineHeight();
           const textTop = curY - LINE_SPACING + 4;
-          doc.font("Helvetica").fontSize(10).fillColor("#334155")
-             .text(cleanPt, PAGE_L + 16, textTop, { width: textW, lineGap });
+          // Authentic pen ink color (#0f2942)
+          doc.font(fontHand).fontSize(10.5).fillColor("#0f2942")
+             .text(cleanPt, PAGE_L + 16, textTop, { width: textW, lineGap: Math.max(2, lineGap) });
           curY = _nextLine(curY, linesNeeded);
           continue;
         }
@@ -516,7 +532,7 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
           ensureSpace(1);
           const textTop = curY - LINE_SPACING + 5;
           const cleanWc = _sanitizeForPdf(clean);
-          doc.font("Helvetica-Oblique").fontSize(8.5).fillColor("#64748b")
+          doc.font(fontHand).fontSize(9).fillColor("#64748b")
              .text(cleanWc, PAGE_L + 8, textTop, { width: PAGE_W - 16, align: "right" });
           curY = _nextLine(curY);
           continue;
@@ -524,15 +540,15 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
 
         // 9. REGULAR PARAGRAPH TEXT (Introduction body, Conclusion body)
         const cleanPara = _sanitizeForPdf(clean);
-        doc.font("Helvetica").fontSize(10);
+        doc.font(fontHand).fontSize(10.5);
         const textW = PAGE_W - 16;
         const rawH = doc.heightOfString(cleanPara, { width: textW });
         const linesNeeded = Math.max(1, Math.round(rawH / doc.currentLineHeight()));
         ensureSpace(linesNeeded);
         const lineGap = LINE_SPACING - doc.currentLineHeight();
         const textTop = curY - LINE_SPACING + 4;
-        doc.font("Helvetica").fontSize(10).fillColor("#1e293b")
-           .text(cleanPara, PAGE_L + 8, textTop, { width: textW, lineGap });
+        doc.font(fontHand).fontSize(10.5).fillColor("#0f2942")
+           .text(cleanPara, PAGE_L + 8, textTop, { width: textW, lineGap: Math.max(2, lineGap) });
         curY = _nextLine(curY, linesNeeded);
       }
 

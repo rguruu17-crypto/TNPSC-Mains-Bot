@@ -2401,11 +2401,24 @@ bot.on("message:photo", async (ctx) => {
 
 // PDF QCAB Answer Sheet submission — AI evaluate + generate merged result PDF
 bot.on("message:document", async (ctx) => {
-  const s = sessions.get(ctx.chat.id);
+  let s = sessions.get(ctx.chat.id);
+
+  // ── No session? Create a default context for verification uploads ──
   if (!s) {
-    return ctx.reply("⚠️ Please select a Paper and Unit to generate a question first:", {
-      reply_markup: getPapersInlineKeyboard(),
-    });
+    s = {
+      question: "General TNPSC Group-1 Mains question (uploaded for verification)",
+      marks: 15,
+      words: 250,
+      topic: "General Studies",
+      unitId: null,
+    };
+    sessions.set(ctx.chat.id, s);
+    await ctx.reply(
+      "📋 <b>No active question session found.</b>\n" +
+      "⚡ Evaluating your uploaded sheet as a <b>15-mark General Studies answer</b> for verification.\n\n" +
+      "💡 <i>Tip: Next time, generate a question first using the menu, then upload your PDF for topic-specific evaluation!</i>",
+      { parse_mode: "HTML" }
+    );
   }
 
   const docMsg  = ctx.message.document;

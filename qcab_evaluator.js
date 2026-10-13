@@ -8,12 +8,21 @@
  * ─────────────────────────────────────────────────────────────────
  */
 
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { GoogleGenAI } = require("@google/genai");
 const fs   = require("fs");
 const path = require("path");
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+// Reuse same SDK instance as llm.js (shares API key & model pool)
+function getAI() {
+  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+}
+
+const CANDIDATE_MODELS = [
+  process.env.GEMINI_MODEL || "gemini-2.5-flash",
+  "gemini-flash-latest",
+  "gemini-2.5-flash",
+].filter(Boolean);
+
 
 // ─────────────────────────────────────────────────────────────────
 // EVALUATION CRITERIA (TNPSC Group 1 Mains 12-Rule Standard)
@@ -91,48 +100,59 @@ Respond ONLY in this exact JSON format (no markdown, no extra text):
  * @returns {Promise<object>}  - Evaluation result object
  */
 async function evaluateQCABSheet(pdfPath, question, marks = 15) {
-  const pdfBytes = fs.readFileSync(pdfPath);
+  const pdfBytes  = fs.readFileSync(pdfPath);
   const base64Pdf = pdfBytes.toString("base64");
+  const prompt    = buildEvalPrompt(question, marks);
+  const ai        = getAI();
 
-  const prompt = buildEvalPrompt(question, marks);
+  let lastErr = null;
+  for (const modelName of CANDIDATE_MODELS) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const res = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { inlineData: { mimeType: "application/pdf", data: base64Pdf } },
+                { text: prompt },
+              ],
+            },
+          ],
+          config: { maxOutputTokens: 4096 },
+        });
 
-  const result = await model.generateContent([
-    prompt,
-    {
-      inlineData: {
-        mimeType: "application/pdf",
-        data: base64Pdf,
-      },
-    },
-  ]);
+        const raw = (res.text || "").trim()
+          .replace(/^```json\s*/i, "")
+          .replace(/^```\s*/i, "")
+          .replace(/```\s*$/i, "")
+          .trim();
 
-  const responseText = result.response.text().trim();
+        const evaluation = JSON.parse(raw);
 
-  // Strip any markdown code fences if Gemini adds them
-  const jsonText = responseText
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```\s*$/i, "")
-    .trim();
+        // Recalculate total marks
+        const criteria = marks === 10 ? CRITERIA_10M : CRITERIA_15M;
+        let total = 0;
+        for (const c of criteria) {
+          total += evaluation.evaluation?.[c.key]?.marks_awarded ?? 0;
+        }
+        evaluation.total_marks = total;
+        evaluation.max_marks   = marks;
+        return evaluation;
 
-  let evaluation;
-  try {
-    evaluation = JSON.parse(jsonText);
-  } catch (e) {
-    throw new Error(`Gemini returned invalid JSON:\n${responseText}`);
+      } catch (err) {
+        lastErr = err;
+        const isQuota = err.status === 429 || (err.message || "").includes("quota");
+        console.warn(`[QCAB Evaluator] Model '${modelName}' attempt ${attempt} failed: ${err.status || err.message?.slice(0, 60)}`);
+        if (isQuota) break; // failover immediately on quota
+        await new Promise(r => setTimeout(r, 1000 * attempt));
+      }
+    }
   }
 
-  // Validate total marks
-  const criteria = marks === 10 ? CRITERIA_10M : CRITERIA_15M;
-  let computedTotal = 0;
-  for (const c of criteria) {
-    const awarded = evaluation.evaluation?.[c.key]?.marks_awarded ?? 0;
-    computedTotal += awarded;
-  }
-  evaluation.total_marks = computedTotal;
-  evaluation.max_marks   = marks;
-
-  return evaluation;
+  throw lastErr || new Error("All Gemini models failed for QCAB evaluation");
 }
+
 
 module.exports = { evaluateQCABSheet, CRITERIA_10M, CRITERIA_15M };

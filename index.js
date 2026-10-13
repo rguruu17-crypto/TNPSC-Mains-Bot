@@ -44,6 +44,15 @@ const {
   generateQCABPdf,
   generateRevisionBiblePdf,
 } = require("./pdf_generator");
+const { evaluateQCABSheet } = require("./qcab_evaluator");
+const {
+  generateMarkedCoverPdf,
+  generateModelAnswerPdf,
+  mergeEvaluationPdfs,
+} = require("./qcab_result_pdf");
+const fs   = require("fs");
+const path = require("path");
+
 const {
   CURATED_EDITORIALS,
   getCuratedEditorials,
@@ -2390,7 +2399,7 @@ bot.on("message:photo", async (ctx) => {
   }
 });
 
-// PDF and Document answer submission (Multi-page PDF / scanned papers)
+// PDF QCAB Answer Sheet submission — AI evaluate + generate merged result PDF
 bot.on("message:document", async (ctx) => {
   const s = sessions.get(ctx.chat.id);
   if (!s) {
@@ -2399,81 +2408,137 @@ bot.on("message:document", async (ctx) => {
     });
   }
 
-  const doc = ctx.message.document;
-  const fileName = doc.file_name || "document.pdf";
-  const isPdf = doc.mime_type === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
-  const isImageDoc = doc.mime_type?.startsWith("image/") || /\.(jpe?g|png)$/i.test(fileName);
+  const docMsg  = ctx.message.document;
+  const fileName = docMsg.file_name || "document.pdf";
+  const isPdf   = docMsg.mime_type === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
+  const isImage = docMsg.mime_type?.startsWith("image/") || /\.(jpe?g|png)$/i.test(fileName);
 
-  if (!isPdf && !isImageDoc) {
+  if (!isPdf && !isImage) {
     return ctx.reply(
-      "⚠️ <b>Unsupported file format:</b> Please upload your answer as a <b>PDF document (.pdf)</b> or image (.jpg, .png).",
+      "⚠️ <b>Unsupported format:</b> Please upload your QCAB answer sheet as a <b>PDF (.pdf)</b>.\n" +
+      "📌 Scan your handwritten sheet and save as PDF, then upload here.",
       { parse_mode: "HTML" }
     );
   }
 
-  // Telegram bot file download size limit is 20MB
-  if (doc.file_size && doc.file_size > 20 * 1024 * 1024) {
-    return ctx.reply("⚠️ The file exceeds Telegram's 20MB download limit. Please compress your PDF and try again.");
+  if (docMsg.file_size && docMsg.file_size > 20 * 1024 * 1024) {
+    return ctx.reply("⚠️ File exceeds Telegram's 20MB limit. Please compress your PDF and retry.");
   }
 
   const mockTiming = extractMockTiming(ctx.chat.id);
-  const anim = await createProgressAnimator(ctx, "PDF OCR & EVALUATION ENGINE");
+  const anim = await createProgressAnimator(ctx, "QCAB AI EVALUATION ENGINE");
+
   try {
-    await anim.step(`📄 [1/3] Ingesting "${fileName}"...`, 25, "Streaming multi-page PDF document...");
-    const file = await ctx.api.getFile(doc.file_id);
-    const url = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-    const buf = Buffer.from(await (await fetch(url)).arrayBuffer());
-    const base64 = buf.toString("base64");
+    // ── STEP 1: Download the uploaded PDF ───────────────────────
+    await anim.step("📥 [1/5] Downloading uploaded answer sheet...", 15, "Streaming PDF from Telegram servers...");
+    const file   = await ctx.api.getFile(docMsg.file_id);
+    const dlUrl  = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+    const buf    = Buffer.from(await (await fetch(dlUrl)).arrayBuffer());
 
-    await anim.step("🧠 [2/3] Gemini Vision Multi-Page Analysis...", 70, "Evaluating handwriting, presentation & 12 rules...");
-    const out = await llm.evaluate(s.question, s.marks, s.words, {
-      pdfBase64: isPdf ? base64 : undefined,
-      imageBase64: !isPdf ? base64 : undefined,
-      mediaType: isPdf ? "application/pdf" : (doc.mime_type || "image/jpeg"),
-    });
+    // Save to disk so evaluator can read it
+    const tmpPath = path.join(__dirname, "data", "generated_pdfs", `UPLOAD_${Date.now()}.pdf`);
+    fs.writeFileSync(tmpPath, buf);
 
-    s.answer = isPdf
-      ? `(PDF answer script submitted: ${fileName} - evaluated via Gemini Vision)`
-      : `(Document image submitted: ${fileName} - evaluated via Gemini Vision)`;
-    s.evaluation = out;
+    // ── STEP 2: AI Evaluate via Gemini Vision ────────────────────
+    await anim.step("👁️ [2/5] Gemini Vision — Reading handwriting & scoring...", 35,
+      "OCR + 12-Rule criteria: intro / body / conclusion / format / language...");
+    const evaluation = await evaluateQCABSheet(tmpPath, s.question, s.marks);
+    s.evaluation = evaluation;
 
+    // Record analytics
     try {
-      const numericScore = extractScoreFromEval(out, s.marks);
       recordSubmission(ctx.chat.id, {
         marks: s.marks,
-        score: numericScore,
+        score: evaluation.total_marks,
         unitId: s.unitId,
         elapsedSeconds: mockTiming ? mockTiming.elapsed : null,
-        submissionType: isPdf ? `PDF Document (${fileName})` : "Document Image",
+        submissionType: "QCAB PDF (Handwritten)",
       });
-    } catch (e) {
-      console.warn("Analytics recording warning:", e.message);
-    }
+    } catch (e) { console.warn("Analytics:", e.message); }
 
-    await anim.step("📓 [3/3] Storing Comprehensive Report in Notion...", 95, "Writing feedback blocks...");
-    let notionUrl = s.notionUrl;
-    try {
-      if (s.notionPageId) {
-        await appendEvaluationToSession(s.notionPageId, { answer: s.answer, evaluation: out });
-      } else {
-        const res = await saveSession(s);
-        notionUrl = res.url || res.toString();
-        s.notionPageId = res.id;
-        s.notionUrl = notionUrl;
-      }
-    } catch (err) {
-      console.error("Auto-save document answer error:", err);
-    }
+    // ── STEP 3: Generate AI Model Answer text ───────────────────
+    await anim.step("🧠 [3/5] Generating official 12-rule model answer...", 55,
+      "Applying TNPSC 12-rule format: subheadings, key boxes, way forward...");
+    const modelAnswerText = s.modelAnswer || await llm.modelAnswer(s.question, s.marks, s.words || (s.marks === 10 ? 150 : 250));
+    s.modelAnswer = modelAnswerText;
+
+    // ── STEP 4: Build the PDFs ───────────────────────────────────
+    await anim.step("📄 [4/5] Generating marked cover page + model answer PDF...", 78,
+      "Compiling evaluation matrix, criteria breakdown & feedback...");
+
+    const found      = s.unitId ? findUnitById(s.unitId) : null;
+    const paperCode  = found ? found.paper.paperCode : "Paper II";
+    const topic      = s.topic || "General Studies";
+
+    const [markedCoverPath, modelAnswerPath] = await Promise.all([
+      generateMarkedCoverPdf({
+        question: s.question, marks: s.marks, topic, paperCode,
+        qNum: 1, evaluation,
+      }),
+      generateModelAnswerPdf({
+        question: s.question, marks: s.marks, topic, paperCode,
+        qNum: 1, modelAnswer: modelAnswerText,
+      }),
+    ]);
+
+    // ── STEP 5: Merge: marked cover + user's sheet + model answer
+    await anim.step("📎 [5/5] Merging all pages into one PDF...", 92,
+      "Stitching: Marked Cover → User Answer Pages → Model Answer...");
+    const mergedPath = await mergeEvaluationPdfs({
+      markedCoverPath,
+      userAnswerPath: tmpPath,
+      modelAnswerPath,
+    });
 
     await anim.delete();
-    const card = formatModernEvaluationCard({ marks: s.marks, evaluation: out, submissionType: isPdf ? `PDF Document (${fileName})` : "Document Image", notionUrl, mockTiming });
-    await reply(ctx, card, getPostAnswerKeyboard(s.unitId));
+
+    // ── Send the merged PDF ──────────────────────────────────────
+    const { total_marks, max_marks, overall_feedback, evaluation: ev } = evaluation;
+    const pct   = Math.round((total_marks / max_marks) * 100);
+    const grade = pct >= 80 ? "A+" : pct >= 65 ? "A" : pct >= 50 ? "B" : "C";
+    const label = pct >= 80 ? "EXCELLENT 🏆" : pct >= 65 ? "GOOD ✅" : pct >= 50 ? "SATISFACTORY 📊" : "NEEDS IMPROVEMENT ⚠️";
+
+    const caption = [
+      `📋 <b>QCAB EVALUATION RESULT</b>`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `🏆 <b>Score:</b> <code>${total_marks} / ${max_marks} MARKS</code>`,
+      `🎓 <b>Grade:</b> <code>${grade} — ${label}</code>`,
+      ``,
+      `📊 <b>Criteria Breakdown:</b>`,
+      `• Introduction: <b>${ev.introduction?.marks_awarded}/${ev.introduction?.max_marks}</b>`,
+      `• Main Content: <b>${ev.body?.marks_awarded}/${ev.body?.max_marks}</b>`,
+      `• Conclusion: <b>${ev.conclusion?.marks_awarded}/${ev.conclusion?.max_marks}</b>`,
+      `• 12-Rule Format: <b>${ev.format?.marks_awarded}/${ev.format?.max_marks}</b>`,
+      `• Language: <b>${ev.language?.marks_awarded}/${ev.language?.max_marks}</b>`,
+      ``,
+      `💬 <b>Feedback:</b> <i>${(overall_feedback || "").slice(0, 200)}</i>`,
+      ``,
+      `📄 <i>PDF contains: Marked Cover Page + Your Answer Sheet + Model Answer</i>`,
+    ].join("\n");
+
+    const outFileName = `QCAB_Evaluated_${s.marks}M_${Date.now().toString().slice(-4)}.pdf`;
+    await ctx.replyWithDocument(new InputFile(mergedPath, outFileName), {
+      caption,
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("📑 New QCAB Sheet", "action:qcab_pdf")
+        .text("📊 My Analytics", "action:analytics")
+        .row()
+        .text("📚 Next Question", "action:pick_topic"),
+    });
+
+    // Cleanup temp files
+    try { fs.unlinkSync(markedCoverPath); } catch (_) {}
+    try { fs.unlinkSync(modelAnswerPath); } catch (_) {}
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+
   } catch (err) {
     await anim.delete();
-    console.error("Document eval error:", err);
-    await ctx.reply(`⚠️ Document evaluation error: ${err.message}`);
+    console.error("QCAB PDF eval error:", err);
+    await ctx.reply(`⚠️ Evaluation error: ${err.message}`);
   }
 });
+
 
 // /auto command
 bot.command(["auto", "autogenerate"], async (ctx) => {

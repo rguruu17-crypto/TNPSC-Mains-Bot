@@ -351,10 +351,11 @@ function generateQCABPdf({ question, marks = 15, topic = "General Studies", pape
         if (isLastPage) {
           doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#334155")
              .text(`Q.NO. ${qNum} (CONTINUED) • ${marks} MARKS • FINAL ½ PAGE (COMPLETES ${pageAllotted} PAGES)`, 48, stripY + 4, { width: 500 });
-          // Half-page writing lines
-          drawWritingGuides(doc, 126, 420);
-          // Red "END OF ANSWER SPACE" banner
-          const endY = 428;
+          // Half-page writing lines — exactly 15 lines at 23pt spacing
+          // Line 1 at Y=142, Line 15 at Y=142+(14×23)=464 → endY=466
+          drawWritingGuides(doc, 126, 466);
+          // Red "END OF ANSWER SPACE" banner (below 15th line)
+          const endY = 474;
           doc.rect(40, endY, 515, 22).fillAndStroke("#fef2f2", "#b91c1c");
           doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#991b1b")
              .text(`END OF ANSWER SPACE  (${pageAllotted} PAGES ALLOTTED AS PER TNPSC QCAB NORMS)`, 45, endY + 6, { align: "center", width: 505 });

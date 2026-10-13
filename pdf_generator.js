@@ -184,12 +184,169 @@ function drawExaminerMatrix(doc, marks = 15) {
 
 // ─────────────────────────────────────────────────────────────
 // 1. QCAB PRINTABLE BOOKLET GENERATOR
+// Standard TNPSC Mains bilingual government booklet format
 // ─────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────
-// AUTHENTIC TNPSC QCAB BOOKLET PAGE DRAWING FUNCTIONS
-// Matches exact government booklet layout from scanned images.
+// PAGE 1 — COVER PAGE with TNPSC header + Question + Lines
 // ─────────────────────────────────────────────────────────────
+function drawQCABCoverPage(doc, { marks, question, paperCode, topic, qNum }) {
+  const L = 28, R = 567, T = 28, B = 814;
+  const W = R - L;
+  const is10     = marks === 10;
+  const pagesStr = is10 ? "1\u00BD" : "2\u00BD";
+  const wordsStr = is10 ? "~150"  : "~250";
+  const minsStr  = is10 ? "8"     : "12";
+
+  // ── Outer thick border ──────────────────────────────────────
+  doc.lineWidth(2).rect(L, T, W, B - T).stroke("#000000");
+  let curY = T;
+
+  // ── ROW 1: Bilingual TNPSC Header (68pt tall) ───────────────
+  const headerH = 68;
+  doc.lineWidth(1).rect(L, curY, W, headerH).stroke("#000000");
+  doc.font("Helvetica-Bold").fontSize(10.5).fillColor("#000000")
+     .text("\u0BA4\u0BAE\u0BBF\u0BB4\u0BCD\u0BA8\u0BBE\u0B9F\u0BC1 \u0A85\u0BB0\u0B9A\u0BC1\u0BAA\u0BCD \u0BAA\u0BA3\u0BBF\u0BAF\u0BBE\u0BB3\u0BB0\u0BCD \u0BA4\u0BC7\u0BB0\u0BCD\u0BB5\u0BBE\u0BA3\u0BC8\u0BAF\u0BAE\u0BCD", L, curY + 6,  { align: "center", width: W });
+  doc.font("Helvetica-Bold").fontSize(10)
+     .text("TAMIL NADU PUBLIC SERVICE COMMISSION",          L, curY + 20, { align: "center", width: W });
+  doc.font("Helvetica").fontSize(7.8)
+     .text("\u0B95\u0BC1\u0BB4\u0BC1-I \u0B9A\u0BC7\u0BB5\u0BC8\u0B95\u0BB3\u0BCD \u0BA4\u0BC7\u0BB0\u0BCD\u0BB5\u0BC1 (\u0BAE\u0BC1\u0BA4\u0BA9\u0BCD\u0BAE\u0BC8 \u0B8E\u0BB4\u0BC1\u0BA4\u0BCD\u0BA4\u0BC1\u0BA4\u0BCD \u0BA4\u0BC7\u0BB0\u0BCD\u0BB5\u0BC1) / COMBINED CIVIL SERVICES EXAM-I (GROUP-I SERVICES) MAIN WRITTEN EXAM", L, curY + 34, { align: "center", width: W });
+  doc.lineWidth(0.5).moveTo(L + 8, curY + 47).lineTo(R - 8, curY + 47).stroke("#000000");
+  doc.font("Helvetica-Bold").fontSize(9)
+     .text("\u0BB5\u0BBF\u0BA9\u0BBE-\u0BB5\u0BBF\u0B9F\u0BC8 \u0B8F\u0B9F\u0BC1 / QUESTION-CUM-ANSWER BOOKLET (QCAB)", L, curY + 52, { align: "center", width: W });
+  curY += headerH;
+
+  // ── ROW 2: Paper & Topic (22pt) ─────────────────────────────
+  const detailsH = 22;
+  doc.lineWidth(1).rect(L, curY, W, detailsH).stroke("#000000");
+  const midX = L + W / 2;
+  doc.lineWidth(0.5).moveTo(midX, curY).lineTo(midX, curY + detailsH).stroke("#000000");
+  doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#000000")
+     .text(`\u0BA4\u0BBE\u0BB3\u0BCD / Paper: ${paperCode}`, L + 6, curY + 7);
+  doc.font("Helvetica-Bold").fontSize(7.5)
+     .text(`\u0BA4\u0BB2\u0BC8\u0BAA\u0BCD\u0BAA\u0BC1 / Topic: ${topic}`, midX + 6, curY + 7, { width: W / 2 - 10 });
+  curY += detailsH;
+
+  // ── ROW 3: Candidate Info — 3 columns (26pt) ────────────────
+  const candidateH = 26;
+  doc.lineWidth(1).rect(L, curY, W, candidateH).stroke("#000000");
+  const col3 = W / 3;
+  doc.lineWidth(0.5).moveTo(L + col3, curY).lineTo(L + col3, curY + candidateH).stroke("#000000");
+  doc.lineWidth(0.5).moveTo(L + col3 * 2, curY).lineTo(L + col3 * 2, curY + candidateH).stroke("#000000");
+  doc.font("Helvetica-Bold").fontSize(7).fillColor("#000000")
+     .text("\u0BAA\u0BA4\u0BBF\u0BB5\u0BC1 \u0B8E\u0BA3\u0BCD / Register No.",    L + 4, curY + 4)
+     .text("__________________________",                    L + 4, curY + 14);
+  doc.font("Helvetica-Bold").fontSize(7)
+     .text("\u0A85\u0BAE\u0BB0\u0BCD\u0BB5\u0BC1 / Session: ________________",   L + col3 + 4, curY + 4)
+     .text("\u0BA8\u0BBE\u0BB3\u0BCD / Date: ____________________",             L + col3 + 4, curY + 14);
+  doc.font("Helvetica-Bold").fontSize(7)
+     .text(`\u0BAE\u0BA4\u0BBF\u0BAA\u0BCD\u0BAA\u0BC6\u0BA3\u0BCD\u0B95\u0BB3\u0BCD / Max Marks: ${marks}`, L + col3 * 2 + 4, curY + 4)
+     .text(`\u0BAA\u0B95\u0BCD\u0B95\u0B99\u0BCD\u0B95\u0BB3\u0BCD / Pages: ${pagesStr}  |  ${minsStr} mins  |  ${wordsStr} Words`, L + col3 * 2 + 4, curY + 14);
+  curY += candidateH;
+
+  // ── ROW 4: Question Table ────────────────────────────────────
+  const qLabelW  = 90;
+  const qTextW   = W - qLabelW;
+  const estLines = Math.ceil(question.length / 62) + 1;
+  const qRowH    = Math.max(is10 ? 62 : 105, estLines * 13 + 12);
+
+  doc.lineWidth(1).rect(L, curY, W, qRowH).stroke("#000000");
+  doc.lineWidth(0.5).moveTo(L + qLabelW, curY).lineTo(L + qLabelW, curY + qRowH).stroke("#000000");
+
+  // Label cell
+  doc.font("Helvetica-Bold").fontSize(8).fillColor("#000000")
+     .text("\u0BB5\u0BBF\u0BA9\u0BBE / Question", L + 2, curY + 5,  { align: "center", width: qLabelW - 4 });
+  doc.font("Helvetica-Bold").fontSize(9)
+     .text(`\u0B8E\u0BA3\u0BCD / No. ${qNum}`,    L + 2, curY + 18, { align: "center", width: qLabelW - 4 });
+  doc.font("Helvetica-Bold").fontSize(8)
+     .text(`(${marks} Marks)`,                   L + 2, curY + 31, { align: "center", width: qLabelW - 4 });
+  doc.font("Helvetica").fontSize(7)
+     .text(`${wordsStr} Words`,                  L + 2, curY + 44, { align: "center", width: qLabelW - 4 });
+
+  // Question text cell
+  doc.font("Helvetica-Bold").fontSize(9).fillColor("#000000")
+     .text(question, L + qLabelW + 5, curY + 6, { width: qTextW - 10, lineGap: 1.8 });
+  curY += qRowH;
+
+  // ── ROW 5: \u0BB5\u0BBF\u0B9F\u0BC8 / Answer separator (16pt) ────────────────────────
+  const ansH = 16;
+  doc.lineWidth(1).rect(L, curY, W, ansH).stroke("#000000");
+  doc.lineWidth(0.5).moveTo(L + qLabelW, curY).lineTo(L + qLabelW, curY + ansH).stroke("#000000");
+  doc.font("Helvetica-Bold").fontSize(8).fillColor("#000000")
+     .text("\u0BB5\u0BBF\u0B9F\u0BC8. / Answer", L + 2, curY + 4, { align: "center", width: qLabelW - 4 });
+  curY += ansH;
+
+  // ── Ruled lines (23pt \u2248 8mm standard government ruling) ────────
+  doc.lineWidth(0.4).strokeColor("#aaaaaa");
+  for (let y = curY + 6; y < B - 3; y += 23) {
+    doc.moveTo(L + 1, y).lineTo(R - 1, y).stroke();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// PAGE (MIDDLE) — Full-page continuation (Image 4 style)
+// ─────────────────────────────────────────────────────────────
+function drawQCABFullContinuationPage(doc, { marks, qNum, pageNum, totalPages }) {
+  const L = 28, R = 567, T = 28, B = 814;
+  const W = R - L;
+
+  doc.lineWidth(2).rect(L, T, W, B - T).stroke("#000000");
+
+  const stripH = 18;
+  doc.lineWidth(0.8).rect(L, T, W, stripH).stroke("#000000");
+  doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#000000")
+     .text(`\u0BB5\u0BBF\u0BA9\u0BBE \u0B8E\u0BA3\u0BCD / Q.No. ${qNum}  (\u0BA4\u0BCA\u0B9F\u0BB0\u0BCD\u0B9A\u0BCD\u0B9A\u0BBF / Continued)  \u2022  ${marks} \u0BAE\u0BA4\u0BBF\u0BAA\u0BCD\u0BAA\u0BC6\u0BA3\u0BCD\u0B95\u0BB3\u0BCD / Marks  \u2022  \u0BAA\u0B95\u0BCD\u0B95\u0BAE\u0BCD / Page ${pageNum} of ${totalPages}`,
+       L + 4, T + 5, { width: W - 8 });
+
+  const boxTop = T + stripH + 4;
+  const boxH   = B - boxTop - 4;
+  doc.lineWidth(0.8).rect(L + 4, boxTop, W - 8, boxH).stroke("#000000");
+
+  doc.lineWidth(0.4).strokeColor("#aaaaaa");
+  for (let y = boxTop + 8; y < boxTop + boxH - 4; y += 23) {
+    doc.moveTo(L + 6, y).lineTo(R - 6, y).stroke();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// PAGE (FINAL) — Half-page writing box + End marker (Image 2/5)
+// ─────────────────────────────────────────────────────────────
+function drawQCABHalfPage(doc, { marks, qNum, pageNum, totalPages }) {
+  const L = 28, R = 567, T = 28, B = 814;
+  const W = R - L;
+  const pagesStr = marks === 10 ? "1\u00BD" : "2\u00BD";
+
+  doc.lineWidth(2).rect(L, T, W, B - T).stroke("#000000");
+
+  const stripH = 18;
+  doc.lineWidth(0.8).rect(L, T, W, stripH).stroke("#000000");
+  doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#000000")
+     .text(`\u0BB5\u0BBF\u0BA9\u0BBE \u0B8E\u0BA3\u0BCD / Q.No. ${qNum}  (\u0B87\u0BB1\u0BC1\u0BA4\u0BBF\u0BAA\u0BCD \u0BAA\u0B95\u0BCD\u0B95\u0BAE\u0BCD / Final Page)  \u2022  ${marks} \u0BAE\u0BA4\u0BBF\u0BAA\u0BCD\u0BAA\u0BC6\u0BA3\u0BCD\u0B95\u0BB3\u0BCD  \u2022  ${pagesStr} \u0BAA\u0B95\u0BCD\u0B95 \u0A92\u0BA4\u0BC1\u0B95\u0BCD\u0B95\u0BC0\u0B9F\u0BC1 / Pages Allotted  \u2022  \u0BAA\u0B95\u0BCD\u0B95\u0BAE\u0BCD ${pageNum} of ${totalPages}`,
+       L + 4, T + 5, { width: W - 8 });
+
+  // Half-page writing box (top 47% of remaining area)
+  const boxTop    = T + stripH + 4;
+  const remaining = B - boxTop - 4;
+  const boxH      = Math.round(remaining * 0.47);
+  const boxBottom = boxTop + boxH;
+  doc.lineWidth(0.8).rect(L + 4, boxTop, W - 8, boxH).stroke("#000000");
+
+  doc.lineWidth(0.4).strokeColor("#aaaaaa");
+  for (let y = boxTop + 8; y < boxBottom - 4; y += 23) {
+    doc.moveTo(L + 6, y).lineTo(R - 6, y).stroke();
+  }
+
+  // End-of-answer-space marker
+  const markerY = boxBottom + 12;
+  doc.lineWidth(0.8).rect(L + 4, markerY, W - 8, 18).stroke("#000000");
+  doc.font("Helvetica-Bold").fontSize(8).fillColor("#000000")
+     .text(`\u25FC \u0B87\u0BA8\u0BCD\u0BA4 \u0B87\u0B9F\u0BA4\u0BCD\u0BA4\u0BBF\u0BB2\u0BCD \u0B8E\u0BB4\u0BC1\u0BA4\u0BBE\u0BA4\u0BC0\u0BB0\u0BCD\u0B95\u0BB3\u0BCD / DO NOT WRITE BELOW THIS LINE  \u2022  ${pagesStr} \u0BAA\u0B95\u0BCD\u0B95 \u0A92\u0BA4\u0BC1\u0B95\u0BCD\u0B95\u0BC0\u0B9F\u0BC1 \u0BAE\u0BC1\u0B9F\u0BBF\u0BA8\u0BCD\u0BA4\u0BA4\u0BC1 / Pages Allotted Completed`,
+       L + 6, markerY + 5, { align: "center", width: W - 12 });
+
+  // Examiner rough-work area label
+  doc.font("Helvetica").fontSize(7).fillColor("#bbbbbb")
+     .text("[ \u0BA4\u0BC7\u0BB0\u0BCD\u0BB5\u0BBE\u0BB3\u0BB0\u0BCD \u0BAE\u0BA4\u0BBF\u0BAA\u0BCD\u0BAA\u0BC0\u0B9F\u0BC1 / EXAMINER EVALUATION & ROUGH WORK SPACE ]", L, markerY + 30, { align: "center", width: W });
+}
 
 /**
  * Draws Image 1 layout: 10M Page 1
@@ -236,10 +393,11 @@ function drawQCABPage1_10M(doc, question) {
     .text("விடை./Answer", L + 2, ansRowY + 4);
 
   // --- Ruled writing lines from ansRowY+answerRowH to B ---
+  // 23pt ≈ 8.1mm ruling, matching authentic TNPSC QCAB government booklet
   const linesStart = ansRowY + answerRowH;
   const linesEnd = B;
   doc.lineWidth(0.4).strokeColor("#999999");
-  for (let y = linesStart + 14; y < linesEnd - 4; y += 14) {
+  for (let y = linesStart + 8; y < linesEnd - 4; y += 23) {
     doc.moveTo(L + 1, y).lineTo(R - 1, y).stroke();
   }
 }
@@ -263,9 +421,9 @@ function drawQCABPage2_10M(doc) {
   const boxBottom = boxTop + boxH;
   doc.lineWidth(0.8).rect(L + 4, boxTop, contentW - 8, boxH).stroke("#000000");
 
-  // Ruled lines inside inner box
+  // Ruled lines inside inner box — 23pt ≈ 8.1mm ruling
   doc.lineWidth(0.4).strokeColor("#999999");
-  for (let y = boxTop + 14; y < boxBottom - 4; y += 14) {
+  for (let y = boxTop + 8; y < boxBottom - 4; y += 23) {
     doc.moveTo(L + 6, y).lineTo(R - 6, y).stroke();
   }
   // rest of page is blank intentionally (half-page cutoff)
@@ -313,11 +471,11 @@ function drawQCABPage1_15M(doc, question) {
     .fillColor("#000000")
     .text("விடை./Answer", L + 2, ansRowY + 4);
 
-  // Ruled writing lines
+  // Ruled writing lines — 23pt ≈ 8.1mm ruling
   const linesStart = ansRowY + answerRowH;
   const linesEnd = B;
   doc.lineWidth(0.4).strokeColor("#999999");
-  for (let y = linesStart + 14; y < linesEnd - 4; y += 14) {
+  for (let y = linesStart + 8; y < linesEnd - 4; y += 23) {
     doc.moveTo(L + 1, y).lineTo(R - 1, y).stroke();
   }
 }
@@ -340,9 +498,9 @@ function drawQCABPage2_15M(doc) {
   const boxH = B - T - 8;
   doc.lineWidth(0.8).rect(L + 4, boxTop, contentW - 8, boxH).stroke("#000000");
 
-  // Ruled lines
+  // Ruled lines — 23pt ≈ 8.1mm ruling
   doc.lineWidth(0.4).strokeColor("#999999");
-  for (let y = boxTop + 14; y < boxTop + boxH - 4; y += 14) {
+  for (let y = boxTop + 8; y < boxTop + boxH - 4; y += 23) {
     doc.moveTo(L + 6, y).lineTo(R - 6, y).stroke();
   }
 }
@@ -366,21 +524,23 @@ function drawQCABPage3_15M(doc) {
   const boxBottom = boxTop + boxH;
   doc.lineWidth(0.8).rect(L + 4, boxTop, contentW - 8, boxH).stroke("#000000");
 
-  // Ruled lines
+  // Ruled lines — 23pt ≈ 8.1mm ruling
   doc.lineWidth(0.4).strokeColor("#999999");
-  for (let y = boxTop + 14; y < boxBottom - 4; y += 14) {
+  for (let y = boxTop + 8; y < boxBottom - 4; y += 23) {
     doc.moveTo(L + 6, y).lineTo(R - 6, y).stroke();
   }
   // remaining page is blank (half-page cutoff)
 }
 
 /**
- * Official TNPSC QCAB Answer Booklet Generator
- * Replicates authentic government booklet layout:
- *   10-Mark → 1½ pages  (Image 1 + Image 2)
- *   15-Mark → 2½ pages  (Image 3 + Image 4 + Image 5)
+ * ════════════════════════════════════════════════════════════════
+ *  Official TNPSC QCAB Answer Booklet Generator
+ *  Standard government bilingual booklet:
+ *    10-Mark → 1½ pages  (Cover Page + Half-page final)
+ *    15-Mark → 2½ pages  (Cover Page + Full continuation + Half-page final)
+ * ════════════════════════════════════════════════════════════════
  */
-function generateQCABPdf({ question, marks = 15, topic = "General Studies", paperCode = "Paper II" }) {
+function generateQCABPdf({ question, marks = 15, topic = "General Studies", paperCode = "Paper II", qNum = 1 }) {
   return new Promise((resolve, reject) => {
     try {
       const sanitizedName = `QCAB_${Date.now()}_${marks}M.pdf`;
@@ -395,39 +555,28 @@ function generateQCABPdf({ question, marks = 15, topic = "General Studies", pape
       const writeStream = fs.createWriteStream(filePath);
       doc.pipe(writeStream);
 
-      const is10 = marks === 10;
+      const is10       = marks === 10;
       const totalPages = is10 ? 2 : 3;
 
+      // PAGE 1: Bilingual TNPSC header + Question + Ruled lines
+      drawQCABCoverPage(doc, { marks, question, paperCode, topic, qNum });
+
       if (is10) {
-        // ── 10-MARK: Image 1 (Page 1) ──────────────────────────
-        drawQCABPage1_10M(doc, question);
-
-        // ── 10-MARK: Image 2 (Page 2) ──────────────────────────
+        // PAGE 2: Half-page writing box (completes 1½ pages)
         doc.addPage();
-        drawQCABPage2_10M(doc);
-
+        drawQCABHalfPage(doc, { marks, qNum, pageNum: 2, totalPages });
       } else {
-        // ── 15-MARK: Image 3 (Page 1) ──────────────────────────
-        drawQCABPage1_15M(doc, question);
-
-        // ── 15-MARK: Image 4 (Page 2) ──────────────────────────
+        // PAGE 2: Full continuation page
         doc.addPage();
-        drawQCABPage2_15M(doc);
-
-        // ── 15-MARK: Image 5 (Page 3) ──────────────────────────
+        drawQCABFullContinuationPage(doc, { marks, qNum, pageNum: 2, totalPages });
+        // PAGE 3: Half-page writing box (completes 2½ pages)
         doc.addPage();
-        drawQCABPage3_15M(doc);
+        drawQCABHalfPage(doc, { marks, qNum, pageNum: 3, totalPages });
       }
 
       doc.end();
-
-      writeStream.on("finish", () => {
-        resolve(filePath);
-      });
-
-      writeStream.on("error", (err) => {
-        reject(err);
-      });
+      writeStream.on("finish", () => { resolve(filePath); });
+      writeStream.on("error",  (err) => { reject(err); });
     } catch (err) {
       reject(err);
     }
@@ -437,6 +586,7 @@ function generateQCABPdf({ question, marks = 15, topic = "General Studies", pape
 // ─────────────────────────────────────────────────────────────
 // 2. REVISION BIBLE PDF COMPILER (10M: 1 ½ PAGES, 15M: 2 ½ PAGES)
 // ─────────────────────────────────────────────────────────────
+
 
 function renderModelAnswerHeader(doc, { qNum, marks, timeMins, words, paper, unit, topic, pageAllotted, pageNum, totalPages }) {
   doc.rect(40, 36, 515, 52).lineWidth(1.2).stroke("#1e293b");

@@ -172,134 +172,223 @@ function generateMarkedCoverPdf({ question, marks, topic, paperCode = "Paper II"
 }
 
 // ─────────────────────────────────────────────────────────────────
-// GENERATE MODEL ANSWER PDF  (plain-text structured renderer)
+// GENERATE MODEL ANSWER PDF  — Rendered ON ruled QCAB lines
+// (looks like a topper's completed answer booklet)
 // ─────────────────────────────────────────────────────────────────
+
+// Page geometry constants (must match pdf_generator.js exactly)
+const PAGE_L        = 40;      // left border X
+const PAGE_R        = 555;     // right border X
+const PAGE_W        = PAGE_R - PAGE_L;  // 515pt
+const LINE_SPACING  = 23;      // 23pt between ruled lines
+const HEADER_H      = 20;      // writing area header strip height
+const WRITE_START   = 100;     // Y where writing area starts (below QCAB header)
+const FIRST_LINE_Y  = WRITE_START + HEADER_H + LINE_SPACING; // 143pt
+
+// Text sits 5pt above each ruled line (so baseline lands on the line)
+const TEXT_OFFSET   = -5;
+
+// ── HELPER: draw lined QCAB writing page ─────────────────────────
+function _drawLinedPage(doc, { paperCode, pageNum, totalPages, stripText, endY = 796 }) {
+  // TNPSC header box (matches drawQCABHeader from pdf_generator.js)
+  doc.lineWidth(1.5).rect(40, 36, 515, 60).stroke("#1e293b");
+  doc.font("Helvetica-Bold").fontSize(11).fillColor("#0f172a")
+     .text("TAMIL NADU PUBLIC SERVICE COMMISSION", 45, 42, { align: "center", width: 505 });
+  doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#334155")
+     .text("COMBINED CIVIL SERVICES EXAMINATION - I (GROUP - I SERVICES) (MAIN WRITTEN EXAMINATION)", 45, 57, { align: "center", width: 505 });
+  doc.font("Helvetica").fontSize(8).fillColor("#475569")
+     .text(`${paperCode.toUpperCase()} • MODEL ANSWER — AI GENERATED`, 45, 70, { align: "center", width: 505 });
+  doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#64748b")
+     .text(`PAGE ${pageNum} OF ${totalPages}`, 45, 83, { align: "center", width: 505 });
+
+  // Writing area outer border
+  doc.lineWidth(0.8).strokeColor("#475569")
+     .rect(PAGE_L, WRITE_START, PAGE_W, endY - WRITE_START).stroke();
+
+  // Header row divider
+  doc.lineWidth(0.5).strokeColor("#94a3b8")
+     .moveTo(PAGE_L, WRITE_START + HEADER_H)
+     .lineTo(PAGE_R, WRITE_START + HEADER_H).stroke();
+
+  // Strip text inside header row
+  doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#334155")
+     .text(stripText, PAGE_L + 8, WRITE_START + 5, { width: PAGE_W - 16, lineBreak: false });
+
+  // Ruled lines
+  doc.lineWidth(0.35).strokeColor("#b0bec5");
+  for (let y = FIRST_LINE_Y; y <= endY - 4; y += LINE_SPACING) {
+    doc.moveTo(PAGE_L + 2, y).lineTo(PAGE_R - 2, y).stroke();
+  }
+}
+
+// ── HELPER: advance curY to next line boundary ────────────────────
+function _nextLine(curY, n = 1) { return curY + n * LINE_SPACING; }
+
+// ── MAIN FUNCTION ─────────────────────────────────────────────────
 function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II", qNum = 1, modelAnswer }) {
   return new Promise((resolve, reject) => {
     try {
       const name     = `MODEL_ANS_${Date.now()}.pdf`;
       const filePath = path.join(OUTPUT_DIR, name);
-      const doc      = new PDFDocument({ size: "A4", margins: { top: 36, bottom: 36, left: 44, right: 44 }, autoFirstPage: true });
-      const ws       = fs.createWriteStream(filePath);
+      const doc      = new PDFDocument({
+        size: "A4",
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+        autoFirstPage: true,
+      });
+      const ws = fs.createWriteStream(filePath);
       doc.pipe(ws);
 
-      const W = 507; // usable width
+      // ── Decide page count (same as QCAB booklet writing pages) ──
+      const is10       = marks === 10;
+      const writePgs   = is10 ? 2 : 3;          // 10M→1½ pages, 15M→2½ pages
+      const totalPages = writePgs;
 
-      // ── Header Banner ─────────────────────────────────────────
-      doc.rect(20, 20, W + 24, 58).fillAndStroke("#0f172a", "#0f172a");
-      doc.font("Helvetica-Bold").fontSize(10).fillColor("#f8fafc")
-         .text("TNPSC GROUP 1 MAINS — MODEL ANSWER (AI GENERATED)", 28, 30, { align: "center", width: W + 8 });
-      doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#93c5fd")
-         .text(`Q.NO. ${qNum}  |  ${marks} MARKS  |  TOPIC: ${topic}  |  ${paperCode}`, 28, 46, { align: "center", width: W + 8 });
+      // Clean the model answer text
+      const rawLines = (modelAnswer || "")
+        .split("\n")
+        .map(l => l
+          .replace(/<[^>]+>/g, "")   // strip HTML
+          .replace(/\*\*/g, "")      // strip **bold**
+          .replace(/\*/g, "")        // strip *italic*
+        );
 
-      // ── Question box ──────────────────────────────────────────
-      doc.rect(20, 82, W + 24, 30).fillAndStroke("#eff6ff", "#bfdbfe");
-      doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#1e40af")
-         .text("QUESTION:", 28, 88);
-      doc.font("Helvetica").fontSize(7.5).fillColor("#1e40af")
-         .text(question, 90, 88, { width: W - 60, lineBreak: false });
+      // ── State machine: iterate over text lines and render ────────
+      let pageIdx = 0;   // 0-based page index
+      let curY    = FIRST_LINE_Y;  // current Y position (starts at first ruled line)
 
-      doc.y = 122;
-      doc.x = 44;
+      // Draw first page
+      const endYForPage = (idx) => idx < writePgs - 1 ? 796 : (is10 ? 474 : 474);
+      _drawLinedPage(doc, {
+        paperCode,
+        pageNum: 1,
+        totalPages,
+        stripText: `Q.NO. ${qNum} — ${marks} MARKS • MODEL ANSWER • ${topic} • ${paperCode.toUpperCase()}`,
+        endY: endYForPage(0),
+      });
 
-      // ── Parse & render structured content ────────────────────
-      const lines = (modelAnswer || "").split("\n");
-
-      for (const raw of lines) {
-        const line = raw
-          .replace(/<[^>]+>/g, "")   // strip any stray HTML tags
-          .replace(/\*\*/g, "")       // strip markdown bold
-          .replace(/\*/g, "");        // strip markdown italic
-
-        if (!line.trim()) {
-          if (doc.y < 760) doc.moveDown(0.3);
-          continue;
-        }
-
-        // ── SECTION: INTRODUCTION / CONCLUSION ──────────────────
-        if (/^(INTRODUCTION|CONCLUSION)$/i.test(line.trim())) {
-          if (doc.y > 730) doc.addPage();
-          const bg = /INTRO/i.test(line) ? "#1e3a5f" : "#14532d";
-          doc.rect(44, doc.y, W, 18).fillAndStroke(bg, bg);
-          doc.font("Helvetica-Bold").fontSize(9).fillColor("#ffffff")
-             .text(`▶  ${line.trim().toUpperCase()}`, 52, doc.y - 15, { width: W - 16 });
-          doc.moveDown(0.6);
-          continue;
-        }
-
-        // ── CURRENT AFFAIRS BOX ─────────────────────────────────
-        if (/^\[CURRENT AFFAIRS BOX\]/i.test(line.trim())) {
-          if (doc.y > 730) doc.addPage();
-          const startY = doc.y;
-          const content = line.replace(/^\[CURRENT AFFAIRS BOX\]:\s*/i, "").trim() ||
-                          "Refer to recent national/state policy developments on this topic.";
-          doc.rect(44, startY, W, 32).fillAndStroke("#fef3c7", "#f59e0b");
-          doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#92400e")
-             .text("⚡ CURRENT AFFAIRS:", 52, startY + 5);
-          doc.font("Helvetica").fontSize(7.5).fillColor("#78350f")
-             .text(content, 52, startY + 16, { width: W - 16, lineBreak: false });
-          doc.y = startY + 36;
-          doc.moveDown(0.4);
-          continue;
-        }
-
-        // ── VALUE ADDITION BOX ──────────────────────────────────
-        if (/^\[VALUE ADDITION\]/i.test(line.trim())) {
-          if (doc.y > 730) doc.addPage();
-          const startY = doc.y;
-          const content = line.replace(/^\[VALUE ADDITION\]:\s*/i, "").trim();
-          doc.rect(44, startY, W, 30).fillAndStroke("#f0fdf4", "#86efac");
-          doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#15803d")
-             .text("💡 VALUE ADDITION:", 52, startY + 5);
-          doc.font("Helvetica").fontSize(7.5).fillColor("#166534")
-             .text(content, 52, startY + 16, { width: W - 16, lineBreak: false });
-          doc.y = startY + 34;
-          doc.moveDown(0.5);
-          continue;
-        }
-
-        // ── NUMBERED SUBHEADINGS (1. TITLE / 2. TITLE ...) ──────
-        if (/^\d+\.\s+[A-Z]/.test(line.trim())) {
-          if (doc.y > 730) doc.addPage();
-          doc.rect(44, doc.y, W, 16).fillAndStroke("#1e293b", "#1e293b");
-          doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#e2e8f0")
-             .text(line.trim(), 52, doc.y - 12, { width: W - 16 });
-          doc.moveDown(0.6);
-          continue;
-        }
-
-        // ── BULLET POINTS ────────────────────────────────────────
-        if (/^[•\-]/.test(line.trim())) {
-          if (doc.y > 760) doc.addPage();
-          doc.font("Helvetica").fontSize(8.5).fillColor("#1e293b")
-             .text(line.trim(), 60, doc.y, { width: W - 20, lineGap: 1.5 });
-          doc.moveDown(0.15);
-          continue;
-        }
-
-        // ── SEPARATOR LINES ──────────────────────────────────────
-        if (/^─{3,}/.test(line.trim())) {
-          doc.moveDown(0.2);
-          doc.lineWidth(0.4).strokeColor("#cbd5e1")
-             .moveTo(44, doc.y).lineTo(44 + W, doc.y).stroke();
-          doc.moveDown(0.3);
-          continue;
-        }
-
-        // ── Word count line ──────────────────────────────────────
-        if (/^word count/i.test(line.trim())) {
-          doc.font("Helvetica-Oblique").fontSize(7.5).fillColor("#94a3b8")
-             .text(line.trim(), 44, doc.y, { align: "right", width: W });
-          doc.moveDown(0.4);
-          continue;
-        }
-
-        // ── REGULAR PARAGRAPH ────────────────────────────────────
-        if (doc.y > 760) doc.addPage();
-        doc.font("Helvetica").fontSize(8.5).fillColor("#334155")
-           .text(line.trim(), 44, doc.y, { width: W, lineGap: 2 });
-        doc.moveDown(0.2);
+      // ── Helper: add a new writing page ──────────────────────────
+      function addWritingPage() {
+        pageIdx++;
+        doc.addPage();
+        const endY = endYForPage(pageIdx);
+        _drawLinedPage(doc, {
+          paperCode,
+          pageNum: pageIdx + 1,
+          totalPages,
+          stripText: `Q.NO. ${qNum} (CONTINUED) • ${marks} MARKS • MODEL ANSWER`,
+          endY,
+        });
+        curY = FIRST_LINE_Y;
+        return endY;
       }
+
+      // ── Helper: check page space & add page if needed ────────────
+      let curPageEndY = endYForPage(0);
+      function ensureSpace(linesNeeded = 1) {
+        if (curY + (linesNeeded - 1) * LINE_SPACING > curPageEndY - 10) {
+          curPageEndY = addWritingPage();
+        }
+      }
+
+      // ── Helper: draw a coloured strip box over the lines ─────────
+      function drawStripBox(text, bgColor, borderColor, labelText, textColor, labelColor) {
+        ensureSpace(2);
+        const boxH = LINE_SPACING * 2 - 2;
+        doc.rect(PAGE_L + 2, curY - LINE_SPACING + 2, PAGE_W - 4, boxH)
+           .fillAndStroke(bgColor, borderColor);
+        doc.font("Helvetica-Bold").fontSize(7).fillColor(labelColor)
+           .text(labelText, PAGE_L + 6, curY - LINE_SPACING + 5, { width: PAGE_W - 12 });
+        doc.font("Helvetica").fontSize(7.5).fillColor(textColor)
+           .text(text, PAGE_L + 6, curY - LINE_SPACING + 14, { width: PAGE_W - 12, lineBreak: false });
+        curY = _nextLine(curY, 2);
+      }
+
+      // ── Render each line of structured model answer ───────────────
+      for (const raw of rawLines) {
+        const line = raw.trim();
+        if (!line) continue;
+
+        // INTRODUCTION / CONCLUSION — dark coloured label bar
+        if (/^(INTRODUCTION|CONCLUSION)$/i.test(line)) {
+          ensureSpace(1);
+          const bg = /INTRO/i.test(line) ? "#1e3a5f" : "#14532d";
+          doc.rect(PAGE_L + 2, curY - LINE_SPACING + 3, PAGE_W - 4, LINE_SPACING - 4)
+             .fillAndStroke(bg, bg);
+          doc.font("Helvetica-Bold").fontSize(9).fillColor("#ffffff")
+             .text(`▶  ${line.toUpperCase()}`, PAGE_L + 8, curY - LINE_SPACING + 6, { width: PAGE_W - 16 });
+          curY = _nextLine(curY);
+          continue;
+        }
+
+        // [CURRENT AFFAIRS BOX]:
+        if (/^\[CURRENT AFFAIRS BOX\]/i.test(line)) {
+          const text = line.replace(/^\[CURRENT AFFAIRS BOX\]:\s*/i, "").trim() ||
+                       "Recent policy context relevant to this topic.";
+          drawStripBox(text, "#fef3c7", "#f59e0b", "⚡ CURRENT AFFAIRS / CORE FOCUS:", "#78350f", "#92400e");
+          continue;
+        }
+
+        // [VALUE ADDITION]:
+        if (/^\[VALUE ADDITION\]/i.test(line)) {
+          const text = line.replace(/^\[VALUE ADDITION\]:\s*/i, "").trim();
+          drawStripBox(text, "#f0fdf4", "#86efac", "💡 VALUE ADDITION / UNIQUE KEY:", "#166534", "#15803d");
+          continue;
+        }
+
+        // Numbered SUBHEADINGS (1. HEADING IN CAPS)
+        if (/^\d+\.\s+[A-Z]/.test(line)) {
+          ensureSpace(1);
+          // Draw a subtle blue-grey background over this line
+          doc.rect(PAGE_L + 2, curY - LINE_SPACING + 3, PAGE_W - 4, LINE_SPACING - 4)
+             .fillAndStroke("#e8edf5", "#c7d2e8");
+          doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#1e293b")
+             .text(line, PAGE_L + 8, curY - LINE_SPACING + 6, { width: PAGE_W - 16 });
+          curY = _nextLine(curY);
+          continue;
+        }
+
+        // Bullet points
+        if (/^[•\-]/.test(line)) {
+          ensureSpace(1);
+          doc.font("Helvetica").fontSize(8.5).fillColor("#334155")
+             .text(line, PAGE_L + 20, curY + TEXT_OFFSET, { width: PAGE_W - 28, lineBreak: false });
+          curY = _nextLine(curY);
+          continue;
+        }
+
+        // Separator lines ───
+        if (/^─{3,}/.test(line)) continue;
+
+        // Word count line
+        if (/^word count/i.test(line)) {
+          ensureSpace(1);
+          doc.font("Helvetica-Oblique").fontSize(7.5).fillColor("#94a3b8")
+             .text(line, PAGE_L + 8, curY + TEXT_OFFSET, { width: PAGE_W - 16, align: "right" });
+          curY = _nextLine(curY);
+          continue;
+        }
+
+        // Regular paragraph text (wraps to next line if too long)
+        const estCharsPerLine = 90;
+        const wrappedLines = Math.ceil(line.length / estCharsPerLine);
+        ensureSpace(wrappedLines);
+        doc.font("Helvetica").fontSize(8.5).fillColor("#1e293b")
+           .text(line, PAGE_L + 8, curY + TEXT_OFFSET, { width: PAGE_W - 16, lineGap: LINE_SPACING - 10 });
+        curY = _nextLine(curY, wrappedLines);
+      }
+
+      // ── END OF ANSWER SPACE banner on the last writing page ──────
+      if (pageIdx < writePgs - 1) {
+        // Add remaining pages if content finished early
+        while (pageIdx < writePgs - 1) {
+          addWritingPage();
+        }
+      }
+      const finalEndY = endYForPage(pageIdx);
+      const bannerY   = finalEndY + 6;
+      doc.rect(PAGE_L, bannerY, PAGE_W, 22).fillAndStroke("#f0fdf4", "#15803d");
+      doc.font("Helvetica-Bold").fontSize(8).fillColor("#14532d")
+         .text("✅ END OF MODEL ANSWER  —  TNPSC 12-RULE FORMAT", PAGE_L + 4, bannerY + 7, { align: "center", width: PAGE_W - 8 });
 
       doc.end();
       ws.on("finish", () => resolve(filePath));
@@ -309,7 +398,9 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
 }
 
 
+
 // ─────────────────────────────────────────────────────────────────
+
 // MERGE PDFs: [marked cover] + [user answer pages] + [model answer]
 // ─────────────────────────────────────────────────────────────────
 async function mergeEvaluationPdfs({ markedCoverPath, userAnswerPath, modelAnswerPath }) {

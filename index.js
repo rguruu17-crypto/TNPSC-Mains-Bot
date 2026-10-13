@@ -44,7 +44,8 @@ const {
   generateQCABPdf,
   generateRevisionBiblePdf,
 } = require("./pdf_generator");
-const { evaluateQCABSheet } = require("./qcab_evaluator");
+const { evaluateQCABSheet, extractQuestionFromSheet } = require("./qcab_evaluator");
+
 const {
   generateMarkedCoverPdf,
   generateModelAnswerPdf,
@@ -2443,7 +2444,7 @@ bot.on("message:document", async (ctx) => {
 
   try {
     // ── STEP 1: Download the uploaded PDF ───────────────────────
-    await anim.step("📥 [1/5] Downloading uploaded answer sheet...", 15, "Streaming PDF from Telegram servers...");
+    await anim.step("📥 [1/6] Downloading uploaded answer sheet...", 10, "Streaming PDF from Telegram servers...");
     const file   = await ctx.api.getFile(docMsg.file_id);
     const dlUrl  = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
     const buf    = Buffer.from(await (await fetch(dlUrl)).arrayBuffer());
@@ -2452,10 +2453,30 @@ bot.on("message:document", async (ctx) => {
     const tmpPath = path.join(__dirname, "data", "generated_pdfs", `UPLOAD_${Date.now()}.pdf`);
     fs.writeFileSync(tmpPath, buf);
 
-    // ── STEP 2: AI Evaluate via Gemini Vision ────────────────────
-    await anim.step("👁️ [2/5] Gemini Vision — Reading handwriting & scoring...", 35,
+    // ── STEP 2: Read the QUESTION from the sheet ─────────────────
+    await anim.step("🔍 [2/6] Reading question written on the sheet...", 22,
+      "Gemini Vision scanning Q.No. area for the actual question...");
+    const detectedQuestion = await extractQuestionFromSheet(tmpPath);
+
+    // Use detected question if found; fallback to session question
+    const evalQuestion = (detectedQuestion && detectedQuestion.length > 15)
+      ? detectedQuestion
+      : s.question;
+
+    // Update session with the real question
+    if (detectedQuestion && detectedQuestion.length > 15) {
+      s.question = detectedQuestion;
+      s.topic    = detectedQuestion.split(" ").slice(0, 6).join(" ") + "...";
+      await ctx.reply(
+        `🔍 <b>Question detected from your sheet:</b>\n<i>"${detectedQuestion}"</i>`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    // ── STEP 3: AI Evaluate via Gemini Vision ────────────────────
+    await anim.step("👁️ [3/6] Gemini Vision — Reading handwriting & scoring...", 40,
       "OCR + 12-Rule criteria: intro / body / conclusion / format / language...");
-    const evaluation = await evaluateQCABSheet(tmpPath, s.question, s.marks);
+    const evaluation = await evaluateQCABSheet(tmpPath, evalQuestion, s.marks);
     s.evaluation = evaluation;
 
     // Record analytics
@@ -2469,39 +2490,44 @@ bot.on("message:document", async (ctx) => {
       });
     } catch (e) { console.warn("Analytics:", e.message); }
 
-    // ── STEP 3: Generate AI Model Answer text ───────────────────
-    await anim.step("🧠 [3/5] Generating official 12-rule model answer...", 55,
-      "Applying TNPSC 12-rule format: subheadings, key boxes, way forward...");
-    const modelAnswerText = s.modelAnswer || await llm.modelAnswer(s.question, s.marks, s.words || (s.marks === 10 ? 150 : 250));
+    // ── STEP 4: Generate AI Model Answer (plain-text, PDF format)
+    await anim.step("🧠 [4/6] Generating structured 12-rule model answer...", 58,
+      "Building Introduction → Subheadings → Value Addition Boxes → Conclusion...");
+    const words = s.marks === 10 ? 150 : 250;
+    // Always regenerate for the detected question (not cached session answer)
+    const modelAnswerText = await llm.generatePdfModelAnswer(evalQuestion, s.marks, words);
     s.modelAnswer = modelAnswerText;
 
-    // ── STEP 4: Build the PDFs ───────────────────────────────────
-    await anim.step("📄 [4/5] Generating marked cover page + model answer PDF...", 78,
+
+
+    // ── STEP 5: Build the PDFs ───────────────────────────────────
+    await anim.step("📄 [5/6] Generating marked cover page + model answer PDF...", 78,
       "Compiling evaluation matrix, criteria breakdown & feedback...");
 
     const found      = s.unitId ? findUnitById(s.unitId) : null;
     const paperCode  = found ? found.paper.paperCode : "Paper II";
-    const topic      = s.topic || "General Studies";
+    const topic      = s.topic || evalQuestion.split(" ").slice(0, 5).join(" ");
 
     const [markedCoverPath, modelAnswerPath] = await Promise.all([
       generateMarkedCoverPdf({
-        question: s.question, marks: s.marks, topic, paperCode,
+        question: evalQuestion, marks: s.marks, topic, paperCode,
         qNum: 1, evaluation,
       }),
       generateModelAnswerPdf({
-        question: s.question, marks: s.marks, topic, paperCode,
+        question: evalQuestion, marks: s.marks, topic, paperCode,
         qNum: 1, modelAnswer: modelAnswerText,
       }),
     ]);
 
-    // ── STEP 5: Merge: marked cover + user's sheet + model answer
-    await anim.step("📎 [5/5] Merging all pages into one PDF...", 92,
+    // ── STEP 6: Merge: marked cover + user's sheet + model answer
+    await anim.step("📎 [6/6] Merging all pages into one PDF...", 92,
       "Stitching: Marked Cover → User Answer Pages → Model Answer...");
     const mergedPath = await mergeEvaluationPdfs({
       markedCoverPath,
       userAnswerPath: tmpPath,
       modelAnswerPath,
     });
+
 
     await anim.delete();
 

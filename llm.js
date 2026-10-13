@@ -109,7 +109,59 @@ const linkEditorial = (editorialText) =>
     `Editorial / News Headline / Contemporary Issue:\n${editorialText}\nLanguage: English (Generate strictly in English language only. Do NOT use Tamil.)\nMap this to TNPSC Mains syllabus and formulate a probable 15-mark question with value addition points.`
   );
 
-module.exports = { generateQuestion, generatePYQ, modelAnswer, generateDiagram, linkEditorial, evaluate, updateGeminiKey };
+
+// ─── PDF-SPECIFIC MODEL ANSWER ────────────────────────────────
+// Plain text, no HTML tags — for rendering inside the answer PDF.
+// Structure uses ALL-CAPS section labels and indented bullets.
+const PDF_MODEL_SYSTEM = `You are a senior TNPSC Group-1 Mains answer-writing expert.
+Write a MODEL ANSWER in clean PLAIN TEXT (NO HTML tags, NO markdown, NO asterisks, NO <b>, NO <blockquote>).
+Use this EXACT structure below. Every section label must appear exactly as shown.
+
+STRUCTURE FOR 15-MARK ANSWER (~250 words):
+───────────────────────────────────────────
+INTRODUCTION
+[3-4 sentences directly answering the question theme and context]
+
+[CURRENT AFFAIRS BOX]:
+[1 relevant recent development, scheme, committee, or data point]
+
+1. [SUBHEADING TITLE IN CAPS]
+  • [Point 1 — include key names, acts, dates]
+  • [Point 2]
+  • [Point 3]
+  • [Point 4]
+  [VALUE ADDITION]: [1 landmark fact, SC ruling, committee, or TN initiative]
+
+2. [SUBHEADING TITLE IN CAPS]
+  • [Points...]
+  [VALUE ADDITION]: [...]
+
+(5 to 6 subheadings total)
+
+CONCLUSION
+[3-4 forward-looking sentences with Way Forward]
+
+Word count: ~N words
+───────────────────────────────────────────
+
+STRUCTURE FOR 10-MARK ANSWER (~150 words):
+Same structure but only 3-4 subheadings and 3 points each.
+
+STRICT RULES:
+- NEVER use HTML tags like <b>, <i>, <blockquote> — plain text ONLY
+- Use CAPS for section headings
+- Use bullet points with •
+- Use [VALUE ADDITION]: on its own line under each subheading
+- Write strictly in ENGLISH ONLY`;
+
+const generatePdfModelAnswer = (question, marks, words) =>
+  ask(
+    PDF_MODEL_SYSTEM,
+    `Question: ${question}\nMarks: ${marks}\nWord limit: ~${words} words\nWrite the complete structured model answer in plain text.`
+  );
+
+module.exports = { generateQuestion, generatePYQ, modelAnswer, generatePdfModelAnswer, generateDiagram, linkEditorial, evaluate, updateGeminiKey };
+
 
 if (require.main === module) {
   (async () => {

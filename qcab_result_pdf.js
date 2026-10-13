@@ -172,55 +172,134 @@ function generateMarkedCoverPdf({ question, marks, topic, paperCode = "Paper II"
 }
 
 // ─────────────────────────────────────────────────────────────────
-// GENERATE MODEL ANSWER PDF
+// GENERATE MODEL ANSWER PDF  (plain-text structured renderer)
 // ─────────────────────────────────────────────────────────────────
 function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II", qNum = 1, modelAnswer }) {
   return new Promise((resolve, reject) => {
     try {
       const name     = `MODEL_ANS_${Date.now()}.pdf`;
       const filePath = path.join(OUTPUT_DIR, name);
-      const doc      = new PDFDocument({ size: "A4", margins: { top: 40, bottom: 40, left: 50, right: 50 }, autoFirstPage: true });
+      const doc      = new PDFDocument({ size: "A4", margins: { top: 36, bottom: 36, left: 44, right: 44 }, autoFirstPage: true });
       const ws       = fs.createWriteStream(filePath);
       doc.pipe(ws);
 
-      // Header
-      doc.lineWidth(1.2).rect(20, 20, 555, 55).stroke(C.dark);
-      doc.font("Helvetica-Bold").fontSize(10).fillColor(C.dark)
-         .text("TNPSC GROUP 1 MAINS — MODEL ANSWER (AI GENERATED)", 25, 28, { align: "center", width: 545 });
-      doc.font("Helvetica-Bold").fontSize(8.5).fillColor(C.blue)
-         .text(`Q.NO. ${qNum} | ${marks} MARKS | TOPIC: ${topic} | ${paperCode}`, 25, 44, { align: "center", width: 545 });
-      doc.font("Helvetica").fontSize(8).fillColor(C.slate)
-         .text(`"${question}"`, 25, 58, { align: "center", width: 545 });
+      const W = 507; // usable width
 
-      doc.moveDown(1.5);
+      // ── Header Banner ─────────────────────────────────────────
+      doc.rect(20, 20, W + 24, 58).fillAndStroke("#0f172a", "#0f172a");
+      doc.font("Helvetica-Bold").fontSize(10).fillColor("#f8fafc")
+         .text("TNPSC GROUP 1 MAINS — MODEL ANSWER (AI GENERATED)", 28, 30, { align: "center", width: W + 8 });
+      doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#93c5fd")
+         .text(`Q.NO. ${qNum}  |  ${marks} MARKS  |  TOPIC: ${topic}  |  ${paperCode}`, 28, 46, { align: "center", width: W + 8 });
 
-      // Model Answer Content
-      const lines = (modelAnswer || "").split("\n").filter(l => l.trim());
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
+      // ── Question box ──────────────────────────────────────────
+      doc.rect(20, 82, W + 24, 30).fillAndStroke("#eff6ff", "#bfdbfe");
+      doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#1e40af")
+         .text("QUESTION:", 28, 88);
+      doc.font("Helvetica").fontSize(7.5).fillColor("#1e40af")
+         .text(question, 90, 88, { width: W - 60, lineBreak: false });
 
-        if (trimmed.startsWith("**") && trimmed.endsWith("**")) {
-          // Bold heading
-          doc.font("Helvetica-Bold").fontSize(9.5).fillColor(C.dark)
-             .text(trimmed.replace(/\*\*/g, ""), { lineGap: 2 });
-        } else if (trimmed.startsWith("•") || trimmed.startsWith("-")) {
-          // Bullet point
-          doc.font("Helvetica").fontSize(9).fillColor(C.slate)
-             .text(trimmed, { indent: 15, lineGap: 1.5 });
-        } else {
-          // Regular paragraph
-          doc.font("Helvetica").fontSize(9).fillColor(C.dark)
-             .text(trimmed, { lineGap: 2 });
+      doc.y = 122;
+      doc.x = 44;
+
+      // ── Parse & render structured content ────────────────────
+      const lines = (modelAnswer || "").split("\n");
+
+      for (const raw of lines) {
+        const line = raw
+          .replace(/<[^>]+>/g, "")   // strip any stray HTML tags
+          .replace(/\*\*/g, "")       // strip markdown bold
+          .replace(/\*/g, "");        // strip markdown italic
+
+        if (!line.trim()) {
+          if (doc.y < 760) doc.moveDown(0.3);
+          continue;
         }
-        doc.moveDown(0.3);
-      }
 
-      // Word count note
-      doc.moveDown(1);
-      const wordCount = (modelAnswer || "").split(/\s+/).filter(Boolean).length;
-      doc.font("Helvetica-Oblique").fontSize(7.5).fillColor(C.slate)
-         .text(`[Model answer word count: ~${wordCount} words | Target: ${marks === 10 ? "~150" : "~250"} words]`, { align: "right" });
+        // ── SECTION: INTRODUCTION / CONCLUSION ──────────────────
+        if (/^(INTRODUCTION|CONCLUSION)$/i.test(line.trim())) {
+          if (doc.y > 730) doc.addPage();
+          const bg = /INTRO/i.test(line) ? "#1e3a5f" : "#14532d";
+          doc.rect(44, doc.y, W, 18).fillAndStroke(bg, bg);
+          doc.font("Helvetica-Bold").fontSize(9).fillColor("#ffffff")
+             .text(`▶  ${line.trim().toUpperCase()}`, 52, doc.y - 15, { width: W - 16 });
+          doc.moveDown(0.6);
+          continue;
+        }
+
+        // ── CURRENT AFFAIRS BOX ─────────────────────────────────
+        if (/^\[CURRENT AFFAIRS BOX\]/i.test(line.trim())) {
+          if (doc.y > 730) doc.addPage();
+          const startY = doc.y;
+          const content = line.replace(/^\[CURRENT AFFAIRS BOX\]:\s*/i, "").trim() ||
+                          "Refer to recent national/state policy developments on this topic.";
+          doc.rect(44, startY, W, 32).fillAndStroke("#fef3c7", "#f59e0b");
+          doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#92400e")
+             .text("⚡ CURRENT AFFAIRS:", 52, startY + 5);
+          doc.font("Helvetica").fontSize(7.5).fillColor("#78350f")
+             .text(content, 52, startY + 16, { width: W - 16, lineBreak: false });
+          doc.y = startY + 36;
+          doc.moveDown(0.4);
+          continue;
+        }
+
+        // ── VALUE ADDITION BOX ──────────────────────────────────
+        if (/^\[VALUE ADDITION\]/i.test(line.trim())) {
+          if (doc.y > 730) doc.addPage();
+          const startY = doc.y;
+          const content = line.replace(/^\[VALUE ADDITION\]:\s*/i, "").trim();
+          doc.rect(44, startY, W, 30).fillAndStroke("#f0fdf4", "#86efac");
+          doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#15803d")
+             .text("💡 VALUE ADDITION:", 52, startY + 5);
+          doc.font("Helvetica").fontSize(7.5).fillColor("#166534")
+             .text(content, 52, startY + 16, { width: W - 16, lineBreak: false });
+          doc.y = startY + 34;
+          doc.moveDown(0.5);
+          continue;
+        }
+
+        // ── NUMBERED SUBHEADINGS (1. TITLE / 2. TITLE ...) ──────
+        if (/^\d+\.\s+[A-Z]/.test(line.trim())) {
+          if (doc.y > 730) doc.addPage();
+          doc.rect(44, doc.y, W, 16).fillAndStroke("#1e293b", "#1e293b");
+          doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#e2e8f0")
+             .text(line.trim(), 52, doc.y - 12, { width: W - 16 });
+          doc.moveDown(0.6);
+          continue;
+        }
+
+        // ── BULLET POINTS ────────────────────────────────────────
+        if (/^[•\-]/.test(line.trim())) {
+          if (doc.y > 760) doc.addPage();
+          doc.font("Helvetica").fontSize(8.5).fillColor("#1e293b")
+             .text(line.trim(), 60, doc.y, { width: W - 20, lineGap: 1.5 });
+          doc.moveDown(0.15);
+          continue;
+        }
+
+        // ── SEPARATOR LINES ──────────────────────────────────────
+        if (/^─{3,}/.test(line.trim())) {
+          doc.moveDown(0.2);
+          doc.lineWidth(0.4).strokeColor("#cbd5e1")
+             .moveTo(44, doc.y).lineTo(44 + W, doc.y).stroke();
+          doc.moveDown(0.3);
+          continue;
+        }
+
+        // ── Word count line ──────────────────────────────────────
+        if (/^word count/i.test(line.trim())) {
+          doc.font("Helvetica-Oblique").fontSize(7.5).fillColor("#94a3b8")
+             .text(line.trim(), 44, doc.y, { align: "right", width: W });
+          doc.moveDown(0.4);
+          continue;
+        }
+
+        // ── REGULAR PARAGRAPH ────────────────────────────────────
+        if (doc.y > 760) doc.addPage();
+        doc.font("Helvetica").fontSize(8.5).fillColor("#334155")
+           .text(line.trim(), 44, doc.y, { width: W, lineGap: 2 });
+        doc.moveDown(0.2);
+      }
 
       doc.end();
       ws.on("finish", () => resolve(filePath));
@@ -228,6 +307,7 @@ function generateModelAnswerPdf({ question, marks, topic, paperCode = "Paper II"
     } catch (e) { reject(e); }
   });
 }
+
 
 // ─────────────────────────────────────────────────────────────────
 // MERGE PDFs: [marked cover] + [user answer pages] + [model answer]

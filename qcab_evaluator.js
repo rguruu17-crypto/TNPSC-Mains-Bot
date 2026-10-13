@@ -93,6 +93,45 @@ Respond ONLY in this exact JSON format (no markdown, no extra text):
 // ─────────────────────────────────────────────────────────────────
 
 /**
+ * Step 0: Extract the question text written on the uploaded QCAB sheet.
+ * Gemini Vision reads the Q.No. / ANSWER header area and returns the question.
+ * @param {string} pdfPath - Absolute path to the uploaded PDF
+ * @returns {Promise<string>} - Extracted question text (or empty string)
+ */
+async function extractQuestionFromSheet(pdfPath) {
+  const pdfBytes  = fs.readFileSync(pdfPath);
+  const base64Pdf = pdfBytes.toString("base64");
+  const ai        = getAI();
+
+  const prompt = `Look at this TNPSC answer sheet PDF carefully.
+Read the QUESTION written at the very top of the sheet (usually after "Q.No." or in the header/question area).
+Return ONLY the question text, nothing else. No explanation. No preamble.
+If you cannot find a clear question, return: NOT_FOUND`;
+
+  for (const modelName of CANDIDATE_MODELS) {
+    try {
+      const res = await ai.models.generateContent({
+        model: modelName,
+        contents: [{
+          role: "user",
+          parts: [
+            { inlineData: { mimeType: "application/pdf", data: base64Pdf } },
+            { text: prompt },
+          ],
+        }],
+        config: { maxOutputTokens: 512 },
+      });
+      const text = (res.text || "").trim();
+      if (text && text !== "NOT_FOUND" && text.length > 10) return text;
+      return "";
+    } catch (err) {
+      console.warn(`[QCAB] extractQuestion failed on '${modelName}': ${err.status || err.message?.slice(0,60)}`);
+    }
+  }
+  return "";
+}
+
+/**
  * Evaluates a scanned QCAB PDF using Gemini Vision.
  * @param {string} pdfPath     - Absolute path to the uploaded PDF
  * @param {string} question    - The question text
@@ -155,4 +194,5 @@ async function evaluateQCABSheet(pdfPath, question, marks = 15) {
 }
 
 
-module.exports = { evaluateQCABSheet, CRITERIA_10M, CRITERIA_15M };
+module.exports = { evaluateQCABSheet, extractQuestionFromSheet, CRITERIA_10M, CRITERIA_15M };
+

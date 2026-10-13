@@ -54,22 +54,27 @@ function drawQCABHeader(doc, { paperCode = "PAPER II", pageNum = 1, totalPages =
     .text(`PAGE ${pageNum} OF ${totalPages}`, 45, 83, { align: "center", width: 505 });
 }
 
-function drawWritingGuides(doc, startY, endY) {
+function drawWritingGuides(doc, startY, endY, stripText = '') {
   const L = 40, R = 555;
   const lineSpacing = 23;
-  const headerH     = 18;  // top row height (wider than ruled lines, matches reference image)
-  const firstLineY  = startY + headerH + lineSpacing; // first ruled line
+  const headerH    = 20;                        // wide top row (matches reference image)
+  const firstLineY = startY + headerH + lineSpacing; // first ruled line Y
 
-  // ── Outer border rectangle (matches reference image) ──────────
+  // ── Outer border rectangle ──────────────────────────────────
   doc.lineWidth(0.8).strokeColor("#475569")
      .rect(L, startY, R - L, endY - startY).stroke();
 
-  // ── Top header divider (wide first row) ───────────────────────
-  doc.lineWidth(0.4).strokeColor("#94a3b8")
+  // ── Header row divider ──────────────────────────────────────
+  doc.lineWidth(0.5).strokeColor("#94a3b8")
      .moveTo(L, startY + headerH).lineTo(R, startY + headerH).stroke();
 
-  // ── Ruled writing lines at 23pt spacing ───────────────────────
-  // Line 1 = startY + headerH + 23, Line N = last line ≤ endY
+  // ── Strip text inside header row ────────────────────────────
+  if (stripText) {
+    doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#334155")
+       .text(stripText, L + 8, startY + 5, { width: R - L - 16, lineBreak: false });
+  }
+
+  // ── Ruled writing lines at 23pt spacing ─────────────────────
   doc.lineWidth(0.35).strokeColor("#b0bec5");
   for (let y = firstLineY; y <= endY - 4; y += lineSpacing) {
     doc.moveTo(L + 2, y).lineTo(R - 2, y).stroke();
@@ -343,35 +348,27 @@ function generateQCABPdf({ question, marks = 15, topic = "General Studies", pape
 
         drawQCABHeader(doc, { paperCode, pageNum, totalPages });
 
-        // ── Continuation strip ──────────────────────────────────
-        const stripY = 104;
-        doc.lineWidth(0.5).rect(40, stripY, 515, 14).stroke("#cbd5e1");
+        // Writing area starts at Y=100 (4pt gap below TNPSC header)
+        // headerH=20, firstLineY=143, spacing=23
+        // Full (29 lines): last = 143+28×23=787  → endY=796
+        // Half (15 lines): last = 143+14×23=465  → endY=474
 
         if (isLastPage) {
-          doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#334155")
-             .text(`Q.NO. ${qNum} (CONTINUED) • ${marks} MARKS • FINAL ½ PAGE (COMPLETES ${pageAllotted} PAGES)`, 48, stripY + 4, { width: 500 });
-          // Half-page writing lines — exactly 15 lines at 23pt spacing
-          // firstLine = 96+18+23 = 137, line 15 = 137+14×23 = 459 → endY = 468
-          drawWritingGuides(doc, 96, 468);
-          // Red "END OF ANSWER SPACE" banner (4pt below last line)
-          const endY = 476;
+          drawWritingGuides(doc, 100, 474,
+            `Q.NO. ${qNum} (CONTINUED)  •  ${marks} MARKS  •  FINAL ½ PAGE  (COMPLETES ${pageAllotted} PAGES)`);
+          // Red "END OF ANSWER SPACE" banner (below writing box)
+          const endY = 482;
           doc.rect(40, endY, 515, 22).fillAndStroke("#fef2f2", "#b91c1c");
           doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#991b1b")
              .text(`END OF ANSWER SPACE  (${pageAllotted} PAGES ALLOTTED AS PER TNPSC QCAB NORMS)`, 45, endY + 6, { align: "center", width: 505 });
           doc.font("Helvetica-Oblique").fontSize(7).fillColor("#b91c1c")
              .text("DO NOT WRITE IN THIS REMAINING SPACE", 45, endY + 16, { align: "center", width: 505 });
         } else if (pg === 1) {
-          // First writing page — show topic context
-          doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#334155")
-             .text(`Q.NO. ${qNum} (CONTINUED) • ${marks} MARKS • PAGE ${pg} OF ${pageAllotted} • TOPIC: ${topic}`, 48, stripY + 4, { width: 500 });
-          // Full page — exactly 29 lines at 23pt spacing
-          // firstLine = 96+18+23 = 137, line 29 = 137+28×23 = 781 → endY = 790
-          drawWritingGuides(doc, 96, 790);
+          drawWritingGuides(doc, 100, 796,
+            `Q.NO. ${qNum} (CONTINUED)  •  ${marks} MARKS  •  PAGE ${pg} OF ${pageAllotted}  •  TOPIC: ${topic}`);
         } else {
-          // Middle writing pages
-          doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#334155")
-             .text(`Q.NO. ${qNum} (CONTINUED) • ${marks} MARKS • PAGE ${pg} OF ${pageAllotted}`, 48, stripY + 4, { width: 500 });
-          drawWritingGuides(doc, 96, 790);
+          drawWritingGuides(doc, 100, 796,
+            `Q.NO. ${qNum} (CONTINUED)  •  ${marks} MARKS  •  PAGE ${pg} OF ${pageAllotted}`);
         }
       }
 

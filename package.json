@@ -9,6 +9,7 @@
     "watch": "node supervisor.js",
     "daily": "node -e \"require('./daily_scheduler').runDailyPYQJob({ force: true })\"",
     "generate": "node auto_generate.js",
+    "ingest": "node url_content_ingester.js",
     "test:llm": "node llm.js"
   },
   "dependencies": {

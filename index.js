@@ -67,6 +67,17 @@ const {
   formatBudgetSummaryCard,
   formatDepartmentAllocationsCard,
 } = require("./economic_survey_budget");
+const {
+  fetchUrlText,
+  ingestArticleContent,
+  ingestUrlToNotion,
+  ingestMultipleUrls,
+} = require("./url_content_ingester");
+const {
+  recordTelegramUser,
+  detectWebsiteName,
+  getAllUsers,
+} = require("./user_manager");
 
 // Initialize process-level crash prevention guard
 setupProcessGuard();
@@ -1315,10 +1326,18 @@ async function handleSaveToNotion(ctx) {
 // TELEGRAM BOT COMMAND & MESSAGE REGISTRATION
 // ─────────────────────────────────────────────────────────────
 function registerBotHandlers(bot) {
+  // Global Middleware: Auto-subscribe any active user to daily scheduled questions
+  bot.use(async (ctx, next) => {
+    if (ctx.chat?.id) {
+      subscribeChat(ctx.chat.id, { force: false });
+    }
+    await next();
+  });
+
   // /start: Clears any old bottom keyboard and shows the Papers menu
   bot.command("start", async (ctx) => {
     userState.delete(ctx.chat.id);
-    subscribeChat(ctx.chat.id);
+    subscribeChat(ctx.chat.id, { force: true });
 
     const pipeline = getTopicPipeline();
     const healthText = formatHealthMeterHTML(false);
@@ -1609,6 +1628,121 @@ bot.command(["budget", "survey"], async (ctx) => {
     parse_mode: "HTML",
     reply_markup: getBudgetMenuKeyboard(),
   });
+});
+
+// Function to handle ingestion of one or multiple IAS/editorial URLs
+async function handleIngestUrls(ctx, rawText) {
+  const urlMatches = (rawText || "").match(/https?:\/\/[^\s]+/gi);
+  if (!urlMatches || urlMatches.length === 0) {
+    return ctx.reply(
+      `🌐 <b>IAS Website Content ➔ Notion Ingester</b>\n\n` +
+      `<b>Usage:</b> <code>/url &lt;URL 1&gt; [URL 2]...</code>\n\n` +
+      `Paste one or multiple URLs from any IAS coaching website, news editorial, or study portal (specifically <b>Drishti IAS</b>, <b>Vajiram & Ravi</b>, Vision IAS, InsightsIAS, The Hindu, etc.).\n\n` +
+      `<b>⚡ What the Bot Does Automatically:</b>\n` +
+      `1. 👤 <b>Saves User Profile:</b> Registers your account for syllabus updates\n` +
+      `2. 📥 <b>Fetches Content:</b> Extracts article text from Drishti IAS / Vajiram & Ravi\n` +
+      `3. 🎯 <b>Maps to Syllabus:</b> Identifies Paper & Unit (GS1, GS2, GS3)\n` +
+      `4. ❓ <b>Formulates 15M Question:</b> Exam-ready TNPSC analytical question\n` +
+      `5. ✍️ <b>Generates 12-Rule Answer:</b> Complete model answer with value additions\n` +
+      `6. 📓 <b>Pushes to Notion:</b> Files directly into your Notion workspace!\n\n` +
+      `<i>Examples:</i>\n` +
+      `• <code>https://www.drishtiias.com/daily-updates/daily-news-analysis/...</code>\n` +
+      `• <code>https://vajiramandravi.com/quest-upsc-notes/...</code>`,
+      { parse_mode: "HTML" }
+    );
+  }
+
+  // 1. Save user identity immediately upon entering URLs
+  const userProfile = recordTelegramUser(ctx.from);
+  console.log(`👤 [User Manager] Active Aspirant: ${userProfile?.fullName} (${userProfile?.username || userProfile?.id}) submitting ${urlMatches.length} URL(s)`);
+
+  const urls = urlMatches.map((u) => u.trim());
+  userState.delete(ctx.chat.id);
+  const anim = await createProgressAnimator(ctx, "IAS URL ➔ NOTION INGESTER");
+
+  try {
+    const batch = await ingestMultipleUrls(urls, {
+      onProgress: async (p) => {
+        const text = p.text || `Processing URL ${p.index || 1}/${urls.length}...`;
+        const pct = Math.min(95, Math.round(((p.index || 1) / (urls.length + 1)) * 90));
+        await anim.step(text, pct, p.url || "");
+      },
+    });
+
+    await anim.delete();
+
+    if (batch.successCount === 0) {
+      return ctx.reply(`⚠️ Could not ingest content from the provided URL(s):\n${batch.errors.map((e) => `• ${e.url}: ${e.error}`).join("\n")}`);
+    }
+
+    for (const item of batch.results) {
+      const siteName = detectWebsiteName(item.sourceUrl);
+
+      // Record this ingested URL in the user's permanent profile
+      recordTelegramUser(ctx.from, {
+        url: item.sourceUrl,
+        website: siteName,
+        topic: item.topic,
+        unitId: item.unitId,
+        paper: item.paper,
+        notionUrl: item.notionUrl,
+      });
+
+      const card = [
+        `🌐 <b>${siteName.toUpperCase()} CONTENT ➔ NOTION SYNC</b>`,
+        `────────────────────────────────────`,
+        `👤 <b>Aspirant:</b> <b>${userProfile?.fullName || "Student"}</b> ${userProfile?.username ? `(${userProfile.username})` : ""}`,
+        `📚 <b>${item.paper}</b>`,
+        `🏛️ <b>${item.unit}</b>`,
+        `🎯 <b>Syllabus Topic:</b> <b>${item.topic}</b>`,
+        `🔗 <b>Source Portal:</b> <a href="${item.sourceUrl}">${siteName} Article</a>`,
+        ``,
+        `📌 <b>Formulated 15-Mark Question:</b>`,
+        `<i>${item.question}</i>`,
+        ``,
+        `✅ <b>12-Rule Model Answer generated and pushed directly to Notion!</b>`,
+        `────────────────────────────────────`,
+        `🔗 <a href="${item.notionUrl}"><b>👉 Open Topic in Notion ↗</b></a>`,
+      ].join("\n");
+
+      await ctx.reply(card, {
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+        reply_markup: new InlineKeyboard()
+          .url("🔗 Open in Notion", item.notionUrl)
+          .row()
+          .text("🎯 View 12-Rule Model Answer", "action:model")
+          .text("📑 Printable QCAB PDF", "action:qcab_pdf")
+          .row()
+          .text("📚 Main Menu", "action:pick_topic"),
+      });
+
+      // Save as active question in session so user can write an answer or get PDF
+      sessions.set(ctx.chat.id, {
+        question: item.question,
+        marks: 15,
+        words: 250,
+        modelAnswer: item.modelAnswer,
+        topic: item.topic,
+        unitId: item.unitId,
+        notionUrl: item.notionUrl,
+        notionPageId: item.notionPageId,
+      });
+    }
+
+    if (batch.errors.length > 0) {
+      await ctx.reply(`⚠️ Note: ${batch.errors.length} URL(s) could not be parsed:\n` + batch.errors.map((e) => `• ${e.url}: ${e.error}`).join("\n"));
+    }
+  } catch (err) {
+    await anim.delete();
+    console.error("URL ingestion error:", err);
+    await ctx.reply(`⚠️ URL ingestion failed: ${err.message}`);
+  }
+}
+
+// /url, /ingest, /link command
+bot.command(["url", "ingest", "link"], async (ctx) => {
+  await handleIngestUrls(ctx, ctx.match || "");
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -2416,6 +2550,11 @@ bot.on("message:text", async (ctx) => {
     }
   }
 
+  // 1E. If the message contains one or more URLs, automatically process as IAS / Editorial website content ingestion!
+  if (ctx.message.text.match(/https?:\/\/[^\s]+/i)) {
+    return await handleIngestUrls(ctx, ctx.message.text);
+  }
+
   // 2. If student has an active question, evaluate their submitted answer
   const s = sessions.get(ctx.chat.id);
   if (!s) {
@@ -2946,7 +3085,7 @@ bot.command(["status", "scheduler", "health"], async (ctx) => {
 
 // /subscribe and /unsubscribe commands
 bot.command("subscribe", async (ctx) => {
-  subscribeChat(ctx.chat.id);
+  subscribeChat(ctx.chat.id, { force: true });
   await ctx.reply("🔔 <b>Successfully Subscribed!</b>\n\nYou will receive the 2 TNPSC Mains PYQ questions, 12-rule model answers, and Notion link every morning at <b>9:00 AM</b>.", { parse_mode: "HTML" });
 });
 
@@ -2957,7 +3096,7 @@ bot.command("unsubscribe", async (ctx) => {
 
 bot.callbackQuery("action:sub", async (ctx) => {
   await ctx.answerCallbackQuery({ text: "Subscribed to daily 9 AM questions!" }).catch(() => {});
-  subscribeChat(ctx.chat.id);
+  subscribeChat(ctx.chat.id, { force: true });
   await ctx.reply("🔔 <b>Subscribed!</b> You will receive daily 9:00 AM questions automatically.", { parse_mode: "HTML" });
 });
 
@@ -3261,6 +3400,7 @@ if (bot) {
     { command: "subscribe", description: "Subscribe to 9 AM daily alerts" },
     { command: "menu", description: "Open syllabus navigation" },
     { command: "auto", description: "Auto-generate Q&A and save to Notion" },
+    { command: "url", description: "🌐 Ingest IAS article URL(s) directly to Notion" },
     { command: "model", description: "Get official 12-rule model answer" },
   ]).catch(() => {});
 

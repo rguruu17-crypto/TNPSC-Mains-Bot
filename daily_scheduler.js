@@ -16,6 +16,7 @@ const DEFAULT_STATE = {
   lastRunQuestion: null,
   lastRunNotionUrl: null,
   subscribedChats: [],
+  unsubscribedChats: [],
   totalRuns: 0,
   history: [],
 };
@@ -323,8 +324,22 @@ function startDailyScheduler(botInstance) {
 }
 
 // Subscription management for Telegram chats
-function subscribeChat(chatId) {
+function subscribeChat(chatId, { force = false } = {}) {
   const state = repairStateFile(STATE_FILE, DEFAULT_STATE);
+  state.unsubscribedChats = state.unsubscribedChats || [];
+  state.subscribedChats = state.subscribedChats || [];
+
+  // If not forced and user explicitly opted out earlier, do not auto-subscribe
+  if (!force && state.unsubscribedChats.includes(chatId)) {
+    return false;
+  }
+
+  // If forced (e.g. /subscribe or /start), remove from unsubscribed list
+  if (force) {
+    const unIdx = state.unsubscribedChats.indexOf(chatId);
+    if (unIdx !== -1) state.unsubscribedChats.splice(unIdx, 1);
+  }
+
   if (!state.subscribedChats.includes(chatId)) {
     state.subscribedChats.push(chatId);
     saveStateFile(STATE_FILE, state);
@@ -335,13 +350,20 @@ function subscribeChat(chatId) {
 
 function unsubscribeChat(chatId) {
   const state = repairStateFile(STATE_FILE, DEFAULT_STATE);
+  state.unsubscribedChats = state.unsubscribedChats || [];
+  state.subscribedChats = state.subscribedChats || [];
+
+  if (!state.unsubscribedChats.includes(chatId)) {
+    state.unsubscribedChats.push(chatId);
+  }
+
   const idx = state.subscribedChats.indexOf(chatId);
   if (idx !== -1) {
     state.subscribedChats.splice(idx, 1);
-    saveStateFile(STATE_FILE, state);
-    return true;
   }
-  return false;
+
+  saveStateFile(STATE_FILE, state);
+  return true;
 }
 
 function getTopicPipeline() {

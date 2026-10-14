@@ -1,14 +1,34 @@
 {
-  "currentTopicIndex": 5,
-  "lastRunDate": "2026-10-13",
-  "lastRunTime": "2026-10-13T05:55:47.655Z",
+  "currentTopicIndex": 6,
+  "lastRunDate": "2026-10-14",
+  "lastRunTime": "2026-10-14T05:12:49.288Z",
   "lastRunStatus": "success",
-  "lastRunTopic": "South Indian Rebellion 1799–1801 A.D.",
-  "lastRunQuestion": "[TNPSC Group-1 Mains PYQ (Pattern)]: Examine the socio-economic and political causes that led to the South Indian Rebellion of 1799-1801 A.D. and evaluate its importance as an early anti-colonial resistance movement.",
-  "lastRunNotionUrl": "https://app.notion.com/p/South-Indian-Rebellion-1799-1801-A-D-3f7bdc8a71e08102823be6aa6f94ce83",
-  "subscribedChats": [],
-  "totalRuns": 3,
+  "lastRunTopic": "Vellore Rebellion 1806 A.D.",
+  "lastRunQuestion": "[TNPSC Group-1 Mains PYQ (2019)]: Critically examine the causes and the significance of the Vellore Rebellion of 1806.",
+  "lastRunNotionUrl": "https://app.notion.com/p/Vellore-Rebellion-1806-A-D-3f9bdc8a71e081b4a1c9c2a2baa11f90",
+  "subscribedChats": [
+    987654321
+  ],
+  "unsubscribedChats": [],
+  "totalRuns": 4,
   "history": [
+    {
+      "date": "2026-10-14",
+      "timestamp": "2026-10-14T05:12:49.288Z",
+      "topic": "Vellore Rebellion 1806 A.D.",
+      "unitId": "GS1_U1",
+      "paper": "📜 General Studies I (Paper II)",
+      "unit": "🏛️ Unit I: Modern History of India and Indian Culture (100 marks)",
+      "questions": [
+        {
+          "text": "[TNPSC Group-1 Mains PYQ (2019)]: Critically examine the causes and the significance of the Vellore Rebellion of 1806."
+        },
+        {
+          "text": "[TNPSC Group-1 Mains Pattern (High-Yield)]: Analyze the military grievances and the specific socio-religious factors that acted as immediate triggers for the Vellore Rebellion of 1806, and evaluate its long-term impact on the British administrative and recruitment policies in the Madras Presidency."
+        }
+      ],
+      "notionUrl": "https://app.notion.com/p/Vellore-Rebellion-1806-A-D-3f9bdc8a71e081b4a1c9c2a2baa11f90"
+    },
     {
       "date": "2026-10-13",
       "timestamp": "2026-10-13T05:55:47.655Z",
@@ -55,7 +75,7 @@
     }
   ],
   "lastRunQuestions": [
-    "[TNPSC Group-1 Mains PYQ (Pattern)]: Examine the socio-economic and political causes that led to the South Indian Rebellion of 1799-1801 A.D. and evaluate its importance as an early anti-colonial resistance movement.",
-    "[TNPSC Group-1 Mains PYQ (Pattern)]: Trace the major events and phases of the South Indian Rebellion (1799-1801 A.D.) and evaluate the factors responsible for its ultimate failure against the British."
+    "[TNPSC Group-1 Mains PYQ (2019)]: Critically examine the causes and the significance of the Vellore Rebellion of 1806.",
+    "[TNPSC Group-1 Mains Pattern (High-Yield)]: Analyze the military grievances and the specific socio-religious factors that acted as immediate triggers for the Vellore Rebellion of 1806, and evaluate its long-term impact on the British administrative and recruitment policies in the Madras Presidency."
   ]
 }

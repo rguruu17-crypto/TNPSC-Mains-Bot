@@ -86,6 +86,7 @@ npm run daily
 | `/unsubscribe`| Unsubscribe from daily broadcasts |
 | `/menu` | Open syllabus navigation |
 | `/auto` | Auto-generate Q&A across syllabus units |
+| `/url <link>`| Ingest IAS website / editorial URL, formulate 15M Q&A, and push to Notion |
 | `/model` | Retrieve official 12-rule model answer for active question |
 | `/current` | View currently active practice question |
 | `/save` | Save active session to Notion |

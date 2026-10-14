@@ -11,11 +11,15 @@ function updateGeminiKey(newKey) {
 }
 
 const CANDIDATE_MODELS = [
-  process.env.GEMINI_MODEL,
-  "gemini-flash-latest",
-  "gemini-2.5-flash",
-  "gemini-pro-latest",
-].filter(Boolean);
+  ...new Set([
+    process.env.GEMINI_MODEL,
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+  ].filter(Boolean))
+];
 
 async function ask(system, contents, maxTokens = 8192) {
   let lastErr = null;

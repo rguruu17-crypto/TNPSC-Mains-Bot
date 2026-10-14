@@ -61,7 +61,9 @@ function generateMarkedCoverPdf({ question, marks, topic, paperCode = "Paper II"
       const ws       = fs.createWriteStream(filePath);
       doc.pipe(ws);
 
-      const { total_marks, max_marks, evaluation: ev, overall_feedback, word_count_estimate } = evaluation;
+      const { total_marks: rawTotal, max_marks: rawMax, evaluation: ev, overall_feedback, word_count_estimate } = evaluation;
+      const total_marks = Math.round((Number(rawTotal) || 0) * 10) / 10;
+      const max_marks = Math.round((Number(rawMax) || marks || 15) * 10) / 10;
       const { grade, color, label } = gradeInfo(total_marks, max_marks);
       const date = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" });
 
@@ -77,8 +79,16 @@ function generateMarkedCoverPdf({ question, marks, topic, paperCode = "Paper II"
       // ── SCORE BADGE ─────────────────────────────────────────────
       const badgeX = 395, badgeY = 108, badgeW = 160, badgeH = 80;
       doc.rect(badgeX, badgeY, badgeW, badgeH).fillAndStroke("#f8fafc", color);
-      doc.font("Helvetica-Bold").fontSize(32).fillColor(color)
-         .text(`${total_marks}/${max_marks}`, badgeX, badgeY + 10, { align: "center", width: badgeW });
+
+      const scoreText = `${total_marks}/${max_marks}`;
+      let scoreFontSize = 32;
+      doc.font("Helvetica-Bold").fontSize(scoreFontSize);
+      while (doc.widthOfString(scoreText) > (badgeW - 14) && scoreFontSize > 16) {
+        scoreFontSize -= 2;
+        doc.fontSize(scoreFontSize);
+      }
+      doc.font("Helvetica-Bold").fontSize(scoreFontSize).fillColor(color)
+         .text(scoreText, badgeX, badgeY + 10, { align: "center", width: badgeW, lineBreak: false });
       doc.font("Helvetica-Bold").fontSize(14).fillColor(color)
          .text(`GRADE: ${grade}`, badgeX, badgeY + 50, { align: "center", width: badgeW });
       doc.font("Helvetica-Bold").fontSize(7.5).fillColor(color)
@@ -129,8 +139,8 @@ function generateMarkedCoverPdf({ question, marks, topic, paperCode = "Paper II"
       let rowY = tY + 18;
       rows.forEach((r, i) => {
         const d       = ev[r.key] || {};
-        const awarded = d.marks_awarded ?? 0;
-        const maxM    = d.max_marks    ?? 0;
+        const awarded = Math.round((Number(d.marks_awarded) || 0) * 10) / 10;
+        const maxM    = Math.round((Number(d.max_marks) || 0) * 10) / 10;
         const comment = d.comment      ?? "";
         const bg      = i % 2 === 0 ? "#f8fafc" : "#ffffff";
         const aColor  = awarded >= maxM * 0.7 ? C.green : awarded >= maxM * 0.4 ? C.orange : C.red;

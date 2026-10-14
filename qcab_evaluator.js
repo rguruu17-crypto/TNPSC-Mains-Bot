@@ -70,18 +70,19 @@ INSTRUCTIONS:
 2. Transcribe the full handwritten answer text.
 3. Evaluate the answer strictly against TNPSC Group-1 Mains standards.
 4. Be fair but strict. Partial marks are allowed.
+5. All marks_awarded must be rounded to at most 1 decimal place (e.g. 2, 2.5, 3.5). Never output more than 1 decimal place.
 
 Respond ONLY in this exact JSON format (no markdown, no extra text):
 {
   "transcribed_text": "<full OCR transcription of handwritten answer>",
   "evaluation": {
-    "introduction":  { "marks_awarded": <number>, "max_marks": ${criteria.find(c=>c.key==="introduction").maxMarks}, "comment": "<1 line>" },
-    "body":          { "marks_awarded": <number>, "max_marks": ${criteria.find(c=>c.key==="body").maxMarks}, "comment": "<1 line>" },
-    "conclusion":    { "marks_awarded": <number>, "max_marks": ${criteria.find(c=>c.key==="conclusion").maxMarks}, "comment": "<1 line>" },
-    "format":        { "marks_awarded": <number>, "max_marks": ${criteria.find(c=>c.key==="format").maxMarks}, "comment": "<1 line>" },
-    "language":      { "marks_awarded": <number>, "max_marks": ${criteria.find(c=>c.key==="language").maxMarks}, "comment": "<1 line>" }
+    "introduction":  { "marks_awarded": <number with at most 1 decimal place>, "max_marks": ${criteria.find(c=>c.key==="introduction").maxMarks}, "comment": "<1 line>" },
+    "body":          { "marks_awarded": <number with at most 1 decimal place>, "max_marks": ${criteria.find(c=>c.key==="body").maxMarks}, "comment": "<1 line>" },
+    "conclusion":    { "marks_awarded": <number with at most 1 decimal place>, "max_marks": ${criteria.find(c=>c.key==="conclusion").maxMarks}, "comment": "<1 line>" },
+    "format":        { "marks_awarded": <number with at most 1 decimal place>, "max_marks": ${criteria.find(c=>c.key==="format").maxMarks}, "comment": "<1 line>" },
+    "language":      { "marks_awarded": <number with at most 1 decimal place>, "max_marks": ${criteria.find(c=>c.key==="language").maxMarks}, "comment": "<1 line>" }
   },
-  "total_marks": <sum of all marks_awarded>,
+  "total_marks": <sum of all marks_awarded, rounded to 1 decimal place>,
   "max_marks": ${marks},
   "overall_feedback": "<3-4 sentences: strengths, weaknesses, improvement tips specific to TNPSC>",
   "word_count_estimate": <estimated word count of the answer>
@@ -170,13 +171,18 @@ async function evaluateQCABSheet(pdfPath, question, marks = 15) {
 
         const evaluation = JSON.parse(raw);
 
-        // Recalculate total marks
+        // Recalculate total marks with 1 decimal place precision
         const criteria = marks === 10 ? CRITERIA_10M : CRITERIA_15M;
         let total = 0;
         for (const c of criteria) {
-          total += evaluation.evaluation?.[c.key]?.marks_awarded ?? 0;
+          if (evaluation.evaluation?.[c.key]) {
+            const rawAw = Number(evaluation.evaluation[c.key].marks_awarded) || 0;
+            const cleanAw = Math.round(rawAw * 10) / 10;
+            evaluation.evaluation[c.key].marks_awarded = cleanAw;
+            total += cleanAw;
+          }
         }
-        evaluation.total_marks = total;
+        evaluation.total_marks = Math.round(total * 10) / 10;
         evaluation.max_marks   = marks;
         return evaluation;
 

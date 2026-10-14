@@ -2833,9 +2833,10 @@ bot.on("message:document", async (ctx) => {
 
     // Record analytics
     try {
+      const cleanScore = Math.round((Number(evaluation.total_marks) || 0) * 10) / 10;
       recordSubmission(ctx.chat.id, {
         marks: s.marks,
-        score: evaluation.total_marks,
+        score: cleanScore,
         unitId: s.unitId,
         elapsedSeconds: mockTiming ? mockTiming.elapsed : null,
         submissionType: "QCAB PDF (Handwritten)",
@@ -2874,18 +2875,26 @@ bot.on("message:document", async (ctx) => {
     // ── STEP 5B: Save Model Answer & Evaluation to Notion ────────
     let notionPageUrl = null;
     try {
-      const { total_marks: tMarks, max_marks: mMarks, overall_feedback: oFeedback, evaluation: evData } = evaluation;
+      const { total_marks: rawTMarks, max_marks: rawMMarks, overall_feedback: oFeedback, evaluation: evData } = evaluation;
+      const tMarks     = Math.round((Number(rawTMarks) || 0) * 10) / 10;
+      const mMarks     = Math.round((Number(rawMMarks) || s.marks || 15) * 10) / 10;
       const pctScore   = Math.round((tMarks / mMarks) * 100);
       const gradeStr   = pctScore >= 80 ? "A+" : pctScore >= 65 ? "A" : pctScore >= 50 ? "B" : "C";
       const labelStr   = pctScore >= 80 ? "EXCELLENT 🏆" : pctScore >= 65 ? "GOOD ✅" : pctScore >= 50 ? "SATISFACTORY 📊" : "NEEDS IMPROVEMENT ⚠️";
 
+      const fmtScoreItem = (item) => {
+        const aw = Math.round((Number(item?.marks_awarded) || 0) * 10) / 10;
+        const mx = Math.round((Number(item?.max_marks) || 0) * 10) / 10;
+        return `${aw}/${mx}`;
+      };
+
       const evalSummary = [
         `Score: ${tMarks} / ${mMarks} Marks (${gradeStr} - ${labelStr})`,
-        `Introduction: ${evData?.introduction?.marks_awarded || 0}/${evData?.introduction?.max_marks || 0}`,
-        `Main Content: ${evData?.body?.marks_awarded || 0}/${evData?.body?.max_marks || 0}`,
-        `Conclusion: ${evData?.conclusion?.marks_awarded || 0}/${evData?.conclusion?.max_marks || 0}`,
-        `12-Rule Format: ${evData?.format?.marks_awarded || 0}/${evData?.format?.max_marks || 0}`,
-        `Language: ${evData?.language?.marks_awarded || 0}/${evData?.language?.max_marks || 0}`,
+        `Introduction: ${fmtScoreItem(evData?.introduction)}`,
+        `Main Content: ${fmtScoreItem(evData?.body)}`,
+        `Conclusion: ${fmtScoreItem(evData?.conclusion)}`,
+        `12-Rule Format: ${fmtScoreItem(evData?.format)}`,
+        `Language: ${fmtScoreItem(evData?.language)}`,
         `Feedback: ${oFeedback || "Satisfactory attempt."}`,
       ].join("\n");
 
@@ -2920,10 +2929,18 @@ bot.on("message:document", async (ctx) => {
     await anim.delete();
 
     // ── Send the merged PDF ──────────────────────────────────────
-    const { total_marks, max_marks, overall_feedback, evaluation: ev } = evaluation;
+    const { total_marks: rawTotalMarks, max_marks: rawMaxMarks, overall_feedback, evaluation: ev } = evaluation;
+    const total_marks = Math.round((Number(rawTotalMarks) || 0) * 10) / 10;
+    const max_marks   = Math.round((Number(rawMaxMarks) || s.marks || 15) * 10) / 10;
     const pct   = Math.round((total_marks / max_marks) * 100);
     const grade = pct >= 80 ? "A+" : pct >= 65 ? "A" : pct >= 50 ? "B" : "C";
     const label = pct >= 80 ? "EXCELLENT 🏆" : pct >= 65 ? "GOOD ✅" : pct >= 50 ? "SATISFACTORY 📊" : "NEEDS IMPROVEMENT ⚠️";
+
+    const formatCrit = (item) => {
+      const aw = Math.round((Number(item?.marks_awarded) || 0) * 10) / 10;
+      const mx = Math.round((Number(item?.max_marks) || 0) * 10) / 10;
+      return `${aw}/${mx}`;
+    };
 
     const caption = [
       `📋 <b>QCAB EVALUATION RESULT</b>`,
@@ -2932,11 +2949,11 @@ bot.on("message:document", async (ctx) => {
       `🎓 <b>Grade:</b> <code>${grade} — ${label}</code>`,
       ``,
       `📊 <b>Criteria Breakdown:</b>`,
-      `• Introduction: <b>${ev.introduction?.marks_awarded}/${ev.introduction?.max_marks}</b>`,
-      `• Main Content: <b>${ev.body?.marks_awarded}/${ev.body?.max_marks}</b>`,
-      `• Conclusion: <b>${ev.conclusion?.marks_awarded}/${ev.conclusion?.max_marks}</b>`,
-      `• 12-Rule Format: <b>${ev.format?.marks_awarded}/${ev.format?.max_marks}</b>`,
-      `• Language: <b>${ev.language?.marks_awarded}/${ev.language?.max_marks}</b>`,
+      `• Introduction: <b>${formatCrit(ev.introduction)}</b>`,
+      `• Main Content: <b>${formatCrit(ev.body)}</b>`,
+      `• Conclusion: <b>${formatCrit(ev.conclusion)}</b>`,
+      `• 12-Rule Format: <b>${formatCrit(ev.format)}</b>`,
+      `• Language: <b>${formatCrit(ev.language)}</b>`,
       ``,
       `💬 <b>Feedback:</b> <i>${(overall_feedback || "").slice(0, 200)}</i>`,
       ``,

@@ -19,6 +19,9 @@ STRUCTURE FOR 15-MARK QUESTIONS (MANDATORY):
      - UNIQUE KEY / VALUE ADDITION BOX (MANDATORY FOR EACH SUBHEADING):
        Under each subheading, provide exactly 1 standout unique key differentiator in a box:
        <blockquote>💡 <b>[UNIQUE KEY / VALUE ADDITION]:</b> [Landmark committee, SC ruling, Tamil Nadu pioneer initiative, statistical benchmark, or unique analytical differentiator that makes the answer score top marks]</blockquote>
+     - MANDATORY RULE FOR LEADER / THINKER QUOTES:
+       If quoting Indian national leaders (e.g. Gandhi, Ambedkar, Nehru, Patel, Bose, Vivekananda) or Tamil visionaries/literature (e.g. Thiruvalluvar, Bharathiyar, Periyar, Anna), the quote MUST be placed EXCLUSIVELY inside the box contents (inside <blockquote>💡 [UNIQUE KEY / VALUE ADDITION]: ...</blockquote> or <blockquote>⚡ [CURRENT AFFAIRS / CORE FOCUS]: ...</blockquote>).
+       NEVER place quotes inside standard numbered body points. Standard body points must remain strictly factual, analytical, and data-driven (laws, acts, schemes, statistics, articles).
 
 3. CONCLUSION:
    - Heading: <b>Conclusion</b> in bold text.
@@ -28,7 +31,7 @@ STRUCTURE FOR 10-MARK QUESTIONS:
 - Introduction in bold text.
 - 1 Current Affairs Box (<blockquote>⚡ <b>[CURRENT AFFAIRS / CORE FOCUS]:</b> ...</blockquote>).
 - 3 to 4 subheadings in bold text with 3 to 4 regular points each with bold keywords.
-- 1 Unique Key box under each subheading (<blockquote>💡 <b>[UNIQUE KEY / VALUE ADDITION]:</b> ...</blockquote>).
+- 1 Unique Key box under each subheading (<blockquote>💡 <b>[UNIQUE KEY / VALUE ADDITION]:</b> ...</blockquote>) — leader/thinker quotes belong inside this box only.
 - Conclusion in bold text.
 `;
 
@@ -57,9 +60,10 @@ CRITICAL MANDATORY FORMAT:
    <b>1. [Subheading Title]</b>
    Under each subheading:
    - 4 to 5 concise points (numbered 1., 2., ...).
-   - In every regular point, wrap critical keywords, personalities, treaties, acts, or data in <b>...</b>.
+   - In every regular point, wrap critical keywords, personalities, treaties, acts, or data in <b>...</b>. Standard points must be pure facts/analysis (NO standalone quotes here).
    - Exactly ONE Unique Key box per subheading:
-     <blockquote>💡 <b>[UNIQUE KEY / VALUE ADDITION]:</b> [Unique landmark precedent, committee recommendation, landmark SC ruling, or pioneer Tamil Nadu initiative that elevates the answer above average]</blockquote>
+     <blockquote>💡 <b>[UNIQUE KEY / VALUE ADDITION]:</b> [Unique landmark precedent, committee recommendation, landmark SC ruling, pioneer Tamil Nadu initiative, or Leader/Thinker Quote e.g. "..." — Leader]</blockquote>
+     NOTE: Quotes by national leaders (Ambedkar, Gandhi, Nehru, Patel) or Tamil visionaries (Thiruvalluvar, Bharathiyar, Periyar) must appear EXCLUSIVELY inside this box.
 
 3. CONCLUSION:
    <b>Conclusion</b>
@@ -95,12 +99,22 @@ Output ONLY the question text in English, with no introductory text or numbering
 
 const PYQ_SYSTEM = `You are a veteran TNPSC Group-1 Mains archivist and question-setter.
 CRITICAL LANGUAGE CONSTRAINT: Output strictly in ENGLISH ONLY. NEVER output in Tamil script or Tamil language.
-Based on the provided official syllabus topic, retrieve or reconstruct an authentic TNPSC Group-1 Mains Previous Year Question (PYQ) or high-yield official past pattern question in English for this specific topic.
-Include the past exam year or pattern tag in brackets if known (e.g., [TNPSC Group-1 Mains PYQ (2022)] or [TNPSC Group-1 Mains PYQ (2019)]).
+
+Based on the provided official syllabus topic, retrieve or reconstruct an authentic TNPSC Group-1 Mains Previous Year Question (PYQ) in English for this specific topic.
+
+MANDATORY EXAM YEAR REQUIREMENT:
+You MUST ALWAYS specify the exact past TNPSC Group-1 Mains exam year (e.g., 2023, 2022, 2019, 2017, 2016, 2015, 2011).
+NEVER omit the year.
+NEVER use generic placeholders like "(Pattern)", "(High-Yield)", "(Past Pattern)", or "(Year/Pattern)".
+Every single generated question MUST start with the bracketed tag citing the exact 4-digit year:
+[TNPSC Group-1 Mains PYQ (YYYY)]: [Question text in English]
+
+Examples of mandatory output format:
+[TNPSC Group-1 Mains PYQ (2022)]: Critically examine the impact of the Ryotwari system on the agrarian economy of the Madras Presidency.
+[TNPSC Group-1 Mains PYQ (2019)]: Evaluate the socio-economic factors that led to the Self-Respect Movement in Tamil Nadu.
+
 Use official TNPSC directives: Examine, Critically Examine, Discuss, Evaluate, Elucidate, Substantiate, or Analyze.
-Output format (single concise string):
-[TNPSC Group-1 Mains PYQ (Year/Pattern)]: [Question text in English]
-Output ONLY this line, with no extra conversational preamble or markdown asterisks.`;
+Output ONLY this single line, with no extra conversational preamble or markdown asterisks.`;
 
 const DIAGRAM_SYSTEM = `You are a veteran TNPSC Group-1 Mains presentation coach and Rank-1 mentor.
 CRITICAL LANGUAGE CONSTRAINT: Output strictly in ENGLISH ONLY. Never output in Tamil script or Tamil language.

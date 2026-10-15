@@ -637,11 +637,22 @@ function formatModernQuestionCard({ question, marks, words, topic, unitTitle, is
   const cleanQ = question.replace(/<[^>]+>/g, "").trim();
   const badge = isPYQ ? "🏆 OFFICIAL TNPSC MAINS PYQ" : "🎯 HIGH-YIELD PRACTICE QUESTION";
 
-  return [
+  // Detect PYQ Exam Year
+  const yearMatch = cleanQ.match(/\[(?:TNPSC[^\d\]]*)?(\b(?:19|20)\d{2}\b)[^\]]*\]/i) || cleanQ.match(/\b(199\d|20[0-2]\d)\b/);
+  const examYear = (isPYQ || /\[.*PYQ.*\]/i.test(cleanQ)) && yearMatch ? yearMatch[1] : null;
+
+  const lines = [
     `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
     `┃  🏛️ <b>TNPSC GROUP-1 MAINS SPECIALIST</b>`,
     `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
     `🏷️ <b>Category:</b> <code>${badge}</code>`,
+  ];
+
+  if (examYear) {
+    lines.push(`📅 <b>Exam Year:</b> <code>TNPSC Group-1 Mains (${examYear})</code>`);
+  }
+
+  lines.push(
     `📚 <b>Paper & Unit:</b> <i>${unitTitle}</i>`,
     `🎯 <b>Syllabus Topic:</b> <b>${topic}</b>`,
     `⚖️ <b>Weightage:</b> <code>${marks} MARKS • ~${words} WORDS</code>`,
@@ -650,8 +661,10 @@ function formatModernQuestionCard({ question, marks, words, topic, unitTitle, is
     `📌 <b>QUESTION - ${questionNumber}:</b>`,
     `<b>${cleanQ}</b>`,
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `⚡ <i>Official Tamil Nadu Career Services 12-Rule Model Answer below:</i>`,
-  ].join("\n");
+    `⚡ <i>Official Tamil Nadu Career Services 12-Rule Model Answer below:</i>`
+  );
+
+  return lines.join("\n");
 }
 
 function formatModernModelAnswerCard(modelAnswer, { topic, questionNumber = 1, marks = 15 }) {
@@ -682,6 +695,11 @@ function formatModernNotionSyncBanner({ topic, notionUrl, questionNumber = 1 }) 
 }
 
 function formatModernDailySuiteCard(res) {
+  const q1 = res.question1 || res.question || "";
+  const q2 = res.question2 || "";
+  const y1 = (q1.match(/\[.*?(\b(?:19|20)\d{2}\b).*?\]/) || q1.match(/\b(199\d|20[0-2]\d)\b/))?.[1];
+  const y2 = (q2.match(/\[.*?(\b(?:19|20)\d{2}\b).*?\]/) || q2.match(/\b(199\d|20[0-2]\d)\b/))?.[1];
+
   return [
     `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
     `┃  ⏰ <b>TNPSC MAINS DAILY 9:00 AM SUITE</b>`,
@@ -689,11 +707,11 @@ function formatModernDailySuiteCard(res) {
     `🎯 <b>Topic:</b> <b>${res.topic}</b>`,
     ``,
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `📌 <b>QUESTION 1 (PYQ):</b>`,
-    `<i>${res.question1 || res.question}</i>`,
+    `📌 <b>QUESTION 1 (PYQ${y1 ? ` • ${y1}` : ""}):</b>`,
+    `<i>${q1}</i>`,
     ``,
-    `📌 <b>QUESTION 2 (PYQ):</b>`,
-    `<i>${res.question2}</i>`,
+    `📌 <b>QUESTION 2 (PYQ${y2 ? ` • ${y2}` : ""}):</b>`,
+    `<i>${q2}</i>`,
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
     ``,
     `╔════════════════════════════════════════╗`,

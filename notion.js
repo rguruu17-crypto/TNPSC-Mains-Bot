@@ -314,7 +314,7 @@ function htmlToNotionBlocks(html) {
  * - Unique Keys / Value Addition in Box content (Callout block)
  * - Conclusion in Bold text
  */
-async function saveSession({ question, marks = 15, answer, evaluation, modelAnswer, topic, unitId, words, questionNumber }) {
+async function saveSession({ question, marks = 15, answer, evaluation, modelAnswer, topic, unitId, words, questionNumber, isPYQ = false }) {
   if (!DATABASE_ID) {
     throw new Error("NOTION_DATABASE_ID / NOTION_PAGE_ID is not configured in .env");
   }
@@ -322,6 +322,8 @@ async function saveSession({ question, marks = 15, answer, evaluation, modelAnsw
   const targetParentId = (unitId && UNIT_PAGE_IDS[unitId]) || DATABASE_ID.replace(/-/g, "");
   const topicName = cleanTopicName(topic);
   const cleanQuestion = question.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  const yearMatch = cleanQuestion.match(/\[(?:TNPSC[^\d\]]*)?(\b(?:19|20)\d{2}\b)[^\]]*\]/i) || cleanQuestion.match(/\b(199\d|20[0-2]\d)\b/);
+  const pyqYearTag = (isPYQ || /\[.*PYQ.*\]/i.test(cleanQuestion)) && yearMatch ? ` [PYQ ${yearMatch[1]}]` : "";
 
   const unitMeta = (unitId && UNIT_METADATA[unitId]) || {};
   const paperTitle = unitMeta.paper || "TNPSC Mains";
@@ -384,7 +386,7 @@ async function saveSession({ question, marks = 15, answer, evaluation, modelAnsw
       object: "block",
       type: "heading_1",
       heading_1: {
-        rich_text: [{ type: "text", text: { content: `📌 Question - ${qNum}` } }],
+        rich_text: [{ type: "text", text: { content: `📌 Question - ${qNum}${pyqYearTag}` } }],
       },
     },
     {

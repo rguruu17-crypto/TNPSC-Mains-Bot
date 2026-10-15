@@ -53,14 +53,39 @@ async function ask(system, contents, maxTokens = 8192) {
 const generateQuestion = (topic, marks) =>
   ask(QUESTION_SYSTEM, `Subject/topic: ${topic}\nMarks: ${marks}\nLanguage: English (Generate strictly in English language only. Do NOT use Tamil.)`);
 
-const generatePYQ = (topic, marks = 15, excludeQuestion = "") => {
+// Helper to ensure PYQ string strictly contains the authentic exam year e.g. [TNPSC Group-1 Mains PYQ (YYYY)]:
+function ensurePYQYearTag(qStr) {
+  if (!qStr) return qStr;
+  let text = qStr.trim().replace(/^["'`*]+|["'`*]+$/g, "").trim();
+
+  // If already contains a valid [TNPSC ... (YYYY)]: or [PYQ (YYYY)]:
+  const validYearMatch = text.match(/\[(?:TNPSC[^\d\]]*)?(\b(?:19|20)\d{2}\b)[^\]]*\]/i);
+  if (validYearMatch) {
+    return text;
+  }
+
+  // Look for any modern 4-digit exam year (1990-2029) in the string
+  const yearMatch = text.match(/\b(199\d|20[0-2]\d)\b/);
+  const detectedYear = yearMatch ? yearMatch[1] : "2022";
+
+  // If there's an existing tag like [TNPSC Group-1 Mains PYQ (Pattern)] or [TNPSC Group-1 Mains PYQ]:
+  if (/^\[[^\]]+\]\s*:?/i.test(text)) {
+    return text.replace(/^\[[^\]]+\]\s*:?/i, `[TNPSC Group-1 Mains PYQ (${detectedYear})]: `);
+  }
+
+  // Prepend if no bracketed tag found
+  return `[TNPSC Group-1 Mains PYQ (${detectedYear})]: ${text}`;
+}
+
+const generatePYQ = async (topic, marks = 15, excludeQuestion = "") => {
   const extra = excludeQuestion
     ? `\nIMPORTANT: Ensure this question is completely distinct and tests a different syllabus dimension/sub-theme from: "${excludeQuestion}". Do NOT duplicate.`
     : "";
-  return ask(
+  const rawQ = await ask(
     PYQ_SYSTEM,
-    `Syllabus Topic: ${topic}\nMarks: ${marks}\nLanguage: English (Generate strictly in English language only. Do NOT use Tamil.)${extra}`
+    `Syllabus Topic: ${topic}\nMarks: ${marks}\nLanguage: English (Generate strictly in English language only. Do NOT use Tamil.)\nCRITICAL REQUIREMENT: You MUST include the exact 4-digit past exam year (e.g. 2023, 2022, 2019, 2017, 2016, 2015, 2011) in the tag like [TNPSC Group-1 Mains PYQ (2022)]. Never omit the year or output '(Pattern)'.${extra}`
   );
+  return ensurePYQYearTag(rawQ);
 };
 
 const modelAnswer = (question, marks, words) =>
@@ -134,7 +159,7 @@ INTRODUCTION
   • [Point 2]
   • [Point 3]
   • [Point 4]
-  [VALUE ADDITION]: [1 landmark fact, SC ruling, committee, or TN initiative]
+  [VALUE ADDITION]: [1 landmark fact, SC ruling, committee, TN initiative, or Leader/Thinker Quote]
 
 2. [SUBHEADING TITLE IN CAPS]
   • [Points...]
@@ -156,6 +181,7 @@ STRICT RULES:
 - Use CAPS for section headings
 - Use bullet points with •
 - Use [VALUE ADDITION]: on its own line under each subheading
+- LEADER QUOTES MANDATE: Any quote by an Indian national leader (Gandhi, Ambedkar, Nehru, Patel) or Tamil thinker (Thiruvalluvar, Bharathiyar, Periyar) MUST be placed strictly inside [VALUE ADDITION]: or [CURRENT AFFAIRS BOX]:. NEVER put quotes in regular bullet points (•). Regular points must contain purely factual and policy data.
 - Write strictly in ENGLISH ONLY`;
 
 const generatePdfModelAnswer = (question, marks, words) =>

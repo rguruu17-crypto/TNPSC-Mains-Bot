@@ -61,11 +61,11 @@ function drawWritingGuides(doc, startY, endY, stripText = '') {
   const firstLineY = startY + headerH + lineSpacing; // first ruled line Y
 
   // ── Outer border rectangle ──────────────────────────────────
-  doc.lineWidth(0.8).strokeColor("#475569")
+  doc.lineWidth(1.2).strokeColor("#1e293b")
      .rect(L, startY, R - L, endY - startY).stroke();
 
   // ── Header row divider ──────────────────────────────────────
-  doc.lineWidth(0.5).strokeColor("#94a3b8")
+  doc.lineWidth(0.8).strokeColor("#334155")
      .moveTo(L, startY + headerH).lineTo(R, startY + headerH).stroke();
 
   // ── Strip text inside header row ────────────────────────────
@@ -74,8 +74,8 @@ function drawWritingGuides(doc, startY, endY, stripText = '') {
        .text(stripText, L + 8, startY + 5, { width: R - L - 16, lineBreak: false });
   }
 
-  // ── Ruled writing lines at 23pt spacing ─────────────────────
-  doc.lineWidth(0.35).strokeColor("#b0bec5");
+  // ── Ruled writing lines at 23pt spacing (dark & clear for printing) ──
+  doc.lineWidth(0.75).strokeColor("#334155");
   for (let y = firstLineY; y <= endY - 4; y += lineSpacing) {
     doc.moveTo(L + 2, y).lineTo(R - 2, y).stroke();
   }
@@ -108,7 +108,7 @@ function drawExaminerMatrix(doc, marks = 15, startY = 468, totalH = 320) {
   const is15 = marks === 15;
 
   // Outer container box
-  doc.lineWidth(0.8).rect(40, startY, 515, totalH).stroke("#94a3b8");
+  doc.lineWidth(0.8).rect(40, startY, 515, totalH).stroke("#64748b");
 
   // Header
   doc.rect(40, startY, 515, 20).fill("#1e293b");
@@ -149,7 +149,7 @@ function drawExaminerMatrix(doc, marks = 15, startY = 468, totalH = 320) {
   rows.forEach((r, idx) => {
     const bg = idx % 2 === 0 ? "#ffffff" : "#f8fafc";
     doc.rect(40, currentY, 515, 17).fill(bg);
-    doc.lineWidth(0.5).rect(40, currentY, 515, 17).stroke("#e2e8f0");
+    doc.lineWidth(0.5).rect(40, currentY, 515, 17).stroke("#cbd5e1");
 
     doc.font("Helvetica").fontSize(7.5).fillColor("#1e293b").text(r.criterion, 50, currentY + 4);
     doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#475569").text(r.max, 430, currentY + 4, { width: 35, align: "center" });
@@ -271,8 +271,10 @@ function drawQCABCoverPage(doc, { marks, question, topic, paperCode, qNum, date 
 
   // ── SECTION 6: Topic / Syllabus strip ───────────────────────
   doc.lineWidth(0.5).rect(L + 4, curY, W - 8, 17).fillAndStroke("#f1f5f9", "#cbd5e1");
+  const yearMatch = (question || "").match(/\[.*?(\b(?:19|20)\d{2}\b).*?\]/) || (question || "").match(/\b(199\d|20[0-2]\d)\b/);
+  const yearStr = yearMatch ? `  •  PYQ: ${yearMatch[1]}` : "";
   doc.font("Helvetica").fontSize(7.5).fillColor("#475569")
-     .text(`GS-I  •  ${topic}  •  ${marks} Marks  •  Space: ${pageAllotted} Pages  •  Time: ${timeMins} mins  •  Words: ${words}`,
+     .text(`GS-I  •  ${topic}${yearStr}  •  ${marks} Marks  •  Space: ${pageAllotted} Pages  •  Time: ${timeMins} mins  •  Words: ${words}`,
             L + 10, curY + 4, { width: W - 20 });
   curY += 21;
 

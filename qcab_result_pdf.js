@@ -237,11 +237,11 @@ function _drawLinedPage(doc, { paperCode, pageNum, totalPages, stripText, endY =
      .text(`PAGE ${pageNum} OF ${totalPages}`, 45, 83, { align: "center", width: 505 });
 
   // Writing area outer border
-  doc.lineWidth(0.8).strokeColor("#475569")
+  doc.lineWidth(1.2).strokeColor("#1e293b")
      .rect(PAGE_L, WRITE_START, PAGE_W, endY - WRITE_START).stroke();
 
   // Header row divider
-  doc.lineWidth(0.5).strokeColor("#94a3b8")
+  doc.lineWidth(0.8).strokeColor("#334155")
      .moveTo(PAGE_L, WRITE_START + HEADER_H)
      .lineTo(PAGE_R, WRITE_START + HEADER_H).stroke();
 
@@ -249,8 +249,8 @@ function _drawLinedPage(doc, { paperCode, pageNum, totalPages, stripText, endY =
   doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#334155")
      .text(stripText, PAGE_L + 8, WRITE_START + 5, { width: PAGE_W - 16, lineBreak: false });
 
-  // Ruled lines
-  doc.lineWidth(0.35).strokeColor("#b0bec5");
+  // Ruled lines (dark and crisp for clear visibility on physical printouts)
+  doc.lineWidth(0.75).strokeColor("#334155");
   for (let y = FIRST_LINE_Y; y <= endY - 4; y += LINE_SPACING) {
     doc.moveTo(PAGE_L + 2, y).lineTo(PAGE_R - 2, y).stroke();
   }

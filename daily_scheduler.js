@@ -241,13 +241,16 @@ async function runDailyPYQJob({ force = false, bot = null, onProgress = null } =
   // Step 5: Telegram Broadcast to Subscribed Chats
   const targetBot = bot || activeBotInstance;
   if (targetBot && state.subscribedChats && state.subscribedChats.length > 0) {
+    const y1 = (pyq1.match(/\[.*?(\b(?:19|20)\d{2}\b).*?\]/) || pyq1.match(/\b(199\d|20[0-2]\d)\b/))?.[1];
+    const y2 = (pyq2.match(/\[.*?(\b(?:19|20)\d{2}\b).*?\]/) || pyq2.match(/\b(199\d|20[0-2]\d)\b/))?.[1];
+
     const broadcastMsg =
       `⏰ <b>TNPSC Mains Daily 9:00 AM PYQ Practice (2 Questions)</b>\n\n` +
       `📚 <b>${unitMeta.paper}</b>\n` +
       `🏛️ <b>${unitMeta.unit}</b>\n` +
       `🎯 <b>Syllabus Topic:</b> ${currentTopic.topic}\n\n` +
-      `📌 <b>Question 1 (PYQ):</b>\n<i>${pyq1}</i>\n\n` +
-      `📌 <b>Question 2 (PYQ):</b>\n<i>${pyq2}</i>\n\n` +
+      `📌 <b>Question 1 (PYQ${y1 ? ` • ${y1}` : ""}):</b>\n<i>${pyq1}</i>\n\n` +
+      `📌 <b>Question 2 (PYQ${y2 ? ` • ${y2}` : ""}):</b>\n<i>${pyq2}</i>\n\n` +
       `✅ <b>Both 12-Rule Model Answers saved to Notion!</b>\n` +
       `🔗 <a href="${res1.url}">Open in Notion Topic Page</a>\n\n` +
       `➡️ <i>Tomorrow's 9:00 AM Topic: <b>${nextTopic.topic}</b></i>`;

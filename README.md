@@ -71,7 +71,24 @@ npm run watch
 
 # Run manual daily PYQ generation test
 npm run daily
+
+# PYQ Archive Engine (2012 - Current Years)
+npm run pyqs:sample             # Generate sample PYQ for each exam year
+npm run pyqs -- --year=2022     # Generate for specific exam year
+npm run pyqs:stats              # View archive statistics
+npm run pyqs:pdf                # Compile all archived PDFs into master booklet
 ```
+
+---
+
+## 🏛️ Previous Year Questions (PYQs) Generator (2012 – Present)
+
+Generate authentic TNPSC Group-1 Mains Previous Year Questions from 2012 to current years (2012, 2015, 2016, 2017, 2019, 2022, 2023, 2024):
+- **12-Rule Model Answers**: Introduction with Core Focus Box, structured subheadings with yellow highlights, unique key boxes, and Way Forward.
+- **Notion Hierarchy**: Directly saved under official Unit & Paper pages with `[PYQ YYYY]` tags.
+- **Ruled QCAB PDFs**: Generated on authentic TNPSC ruled answer booklet lines.
+- **Compendium Booklets**: Compiled Year-wise and Master PDF booklets (`data/generated_pdfs/`).
+- **Markdown & JSON Archives**: Auto-updated in `data/pyqs_archive.json` and `data/pyqs_archive.md`.
 
 ---
 
@@ -80,6 +97,7 @@ npm run daily
 | Command | Description |
 | :--- | :--- |
 | `/start` | Select Paper, Unit, and start answer writing |
+| `/pyqs` | **PYQ Archive (2012–Present)**: Browse by year, generate on-demand, and download master PDF booklets |
 | `/daily` | Trigger/view today's 9:00 AM PYQ session (2 questions + model answers) |
 | `/status` | View daily schedule, current topic, next topic, and auto-heal health |
 | `/subscribe` | Subscribe current chat to receive daily 9:00 AM alerts |

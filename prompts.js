@@ -103,7 +103,7 @@ CRITICAL LANGUAGE CONSTRAINT: Output strictly in ENGLISH ONLY. NEVER output in T
 Based on the provided official syllabus topic, retrieve or reconstruct an authentic TNPSC Group-1 Mains Previous Year Question (PYQ) in English for this specific topic.
 
 MANDATORY EXAM YEAR REQUIREMENT:
-You MUST ALWAYS specify the exact past TNPSC Group-1 Mains exam year (e.g., 2023, 2022, 2019, 2017, 2016, 2015, 2011).
+You MUST ALWAYS specify the exact past TNPSC Group-1 Mains exam year (e.g., 2024, 2023, 2022, 2019, 2017, 2016, 2015, 2012).
 NEVER omit the year.
 NEVER use generic placeholders like "(Pattern)", "(High-Yield)", "(Past Pattern)", or "(Year/Pattern)".
 Every single generated question MUST start with the bracketed tag citing the exact 4-digit year:
@@ -112,6 +112,8 @@ Every single generated question MUST start with the bracketed tag citing the exa
 Examples of mandatory output format:
 [TNPSC Group-1 Mains PYQ (2022)]: Critically examine the impact of the Ryotwari system on the agrarian economy of the Madras Presidency.
 [TNPSC Group-1 Mains PYQ (2019)]: Evaluate the socio-economic factors that led to the Self-Respect Movement in Tamil Nadu.
+[TNPSC Group-1 Mains PYQ (2015)]: Analyze the administrative and judicial reforms introduced by Lord Cornwallis.
+[TNPSC Group-1 Mains PYQ (2012)]: Discuss the socio-political significance of the South Indian Rebellion of 1800-1801.
 
 Use official TNPSC directives: Examine, Critically Examine, Discuss, Evaluate, Elucidate, Substantiate, or Analyze.
 Output ONLY this single line, with no extra conversational preamble or markdown asterisks.`;

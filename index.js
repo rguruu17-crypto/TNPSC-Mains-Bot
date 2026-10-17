@@ -51,6 +51,13 @@ const {
   generateModelAnswerPdf,
   mergeEvaluationPdfs,
 } = require("./qcab_result_pdf");
+const {
+  EXAM_YEARS,
+  loadArchive: loadPyqArchive,
+  getStats: getPyqStats,
+  generateSinglePYQ,
+  compileMasterBookletPdf,
+} = require("./pyq_archive_manager");
 const fs   = require("fs");
 const path = require("path");
 
@@ -1385,6 +1392,7 @@ function registerBotHandlers(bot) {
       "• <b>Answer Submission:</b> Text message, handwritten photo, or <b>PDF document</b> (evaluated via Gemini Vision)",
       "",
       "⚡ <b>ADVANCED EXAM CAPABILITIES:</b>",
+      "• 🏛️ <b>PYQ Archive 2012–Present (/pyqs):</b> Authentic questions, model answers & PDF booklet",
       "• ⏱️ <b>12-Min Exam Simulator (/mock):</b> Real-time timer, speed tracker & milestone coaching",
       "• 🗺️ <b>Visual Answer Blueprints (/diagram):</b> ASCII flowcharts & diagrams to draw in paper",
       "• 🎯 <b>TN Stats & Schemes Bank (/tnstats):</b> Authoritative statistics & scheme citations",
@@ -3005,8 +3013,228 @@ bot.on("message:document", async (ctx) => {
     console.error("QCAB PDF eval error:", err);
     await ctx.reply(`⚠️ Evaluation error: ${err.message}`);
   }
+// ─────────────────────────────────────────────────────────────
+// PYQ ARCHIVE COMMANDS & HANDLERS (2012 - PRESENT)
+// ─────────────────────────────────────────────────────────────
+
+function formatPyqArchiveCard() {
+  const stats = getPyqStats();
+  const yearLines = EXAM_YEARS.map(
+    (y) => `• <b>${y}:</b> <code>${stats.byYear[y] || 0} questions</code>`
+  ).join("\n");
+
+  return [
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  🏛️ <b>TNPSC MAINS PYQ ARCHIVE (2012–PRESENT)</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `Official Previous Year Questions archive categorized across all 9 syllabus units with 12-Rule Model Answers, Notion pages & ruled QCAB PDFs.`,
+    ``,
+    `📊 <b>Archive Summary:</b>`,
+    `• <b>Total PYQs Archived:</b> <code>${stats.total}</code>`,
+    `• <b>Notion Pages Synced:</b> <code>${stats.totalNotion}</code>`,
+    `• <b>Ruled QCAB PDFs:</b> <code>${stats.totalPdfs}</code>`,
+    ``,
+    `📅 <b>Breakdown by Exam Year:</b>`,
+    yearLines,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `👇 <b>Select an Exam Year below to browse or generate authentic questions:</b>`,
+  ].join("\n");
+}
+
+function getPyqYearsKeyboard() {
+  const kb = new InlineKeyboard();
+  kb.text("2024", "pyq:year:2024")
+    .text("2023", "pyq:year:2023")
+    .text("2022", "pyq:year:2022")
+    .text("2019", "pyq:year:2019")
+    .row();
+  kb.text("2017", "pyq:year:2017")
+    .text("2016", "pyq:year:2016")
+    .text("2015", "pyq:year:2015")
+    .text("2012", "pyq:year:2012")
+    .row();
+  kb.text("🎲 Generate Random PYQ (2012–2024)", "pyq:gen:random")
+    .row()
+    .text("📄 Download Master PDF Booklet", "pyq:compile_pdf")
+    .row()
+    .text("📚 Syllabus Menu", "action:pick_topic");
+  return kb;
+}
+
+// /pyqs command - View or generate Previous Year Questions from 2012 to current years
+bot.command(["pyqs", "pyq", "previous_years"], async (ctx) => {
+  userState.delete(ctx.chat.id);
+  const card = formatPyqArchiveCard();
+  await ctx.reply(card, {
+    parse_mode: "HTML",
+    reply_markup: getPyqYearsKeyboard(),
+  });
 });
 
+// Callback: Main PYQ Dashboard
+bot.callbackQuery("pyq:browse", async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const card = formatPyqArchiveCard();
+  await ctx.reply(card, {
+    parse_mode: "HTML",
+    reply_markup: getPyqYearsKeyboard(),
+  });
+});
+
+// Callback: View/Manage specific Year's PYQs
+bot.callbackQuery(/^pyq:year:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const year = parseInt(ctx.match[1], 10);
+  const archive = loadPyqArchive();
+  const yearQuestions = (archive.questions || []).filter((q) => q.year === year);
+
+  const textLines = [
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  📅 <b>TNPSC GROUP-1 MAINS (${year})</b>`,
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
+    `Questions archived for <b>${year}</b>: <code>${yearQuestions.length}</code>`,
+    ``,
+  ];
+
+  if (yearQuestions.length === 0) {
+    textLines.push(`<i>No questions generated for ${year} yet. Tap below to architect an authentic ${year} PYQ with official 12-rule model answer!</i>`);
+  } else {
+    textLines.push(`<b>Archived Questions:</b>`);
+    yearQuestions.slice(-3).forEach((item, i) => {
+      textLines.push(`<b>${i + 1}.</b> <i>${item.question.slice(0, 110)}...</i>`);
+      textLines.push(`   📚 <code>${item.paper} • ${item.topic}</code>\n`);
+    });
+  }
+
+  const kb = new InlineKeyboard()
+    .text(`⚡ Generate ${year} PYQ & Answer`, `pyq:gen:${year}`)
+    .row()
+    .text("📄 Compile Year PDF", `pyq:compile_year:${year}`)
+    .row()
+    .text("⬅️ Back to Years", "pyq:browse");
+
+  await ctx.reply(textLines.join("\n"), {
+    parse_mode: "HTML",
+    reply_markup: kb,
+  });
+});
+
+// Callback: Generate on-demand PYQ for specific or random year
+bot.callbackQuery(/^pyq:gen:(.+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const rawYear = ctx.match[1];
+  const targetYear = rawYear === "random"
+    ? EXAM_YEARS[Math.floor(Math.random() * EXAM_YEARS.length)]
+    : parseInt(rawYear, 10);
+
+  const randomTopic = getRandomTopic();
+  const anim = await createProgressAnimator(ctx, `PYQ GENERATOR (${targetYear})`);
+
+  try {
+    await anim.step(`🔍 Pulling authentic ${targetYear} PYQ for '${randomTopic.topic}'...`, 25, "Consulting TNPSC Exam Archives");
+    const item = await generateSinglePYQ({
+      year: targetYear,
+      topicObj: randomTopic,
+      marks: 15,
+      saveToNotion: true,
+      generatePdf: true,
+      onProgress: async (msg) => {
+        await anim.step(msg, 60, `Topic: ${randomTopic.topic}`);
+      },
+    });
+
+    await anim.delete();
+
+    // Set active session for candidate practice
+    sessions.set(ctx.chat.id, {
+      question: item.question,
+      marks: item.marks,
+      words: item.words,
+      topic: item.topic,
+      unitId: item.unitId,
+      modelAnswer: item.modelAnswer,
+      notionUrl: item.notionUrl,
+      notionPageId: item.notionPageId,
+    });
+
+    const card = formatModernQuestionCard({
+      question: item.question,
+      marks: item.marks,
+      words: item.words,
+      topic: item.topic,
+      unitTitle: `${item.paper} - ${item.unit}`,
+      questionNumber: 1,
+      examYear: targetYear,
+    });
+
+    const kb = new InlineKeyboard();
+    if (item.notionUrl) {
+      kb.url("🔗 Open in Notion", item.notionUrl).row();
+    }
+    kb.text("💡 View 12-Rule Model Answer", "action:view_model_answer")
+      .row()
+      .text("⏱️ Practice as 12-Min Mock", "action:start_mock_exam")
+      .text("📑 QCAB PDF", "action:qcab_pdf")
+      .row()
+      .text(`🔄 Another ${targetYear} PYQ`, `pyq:gen:${targetYear}`)
+      .text("⬅️ All Years", "pyq:browse");
+
+    await ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: kb,
+    });
+
+    // Send QCAB PDF if generated
+    if (item.pdfPath && fs.existsSync(item.pdfPath)) {
+      try {
+        const outFileName = `TNPSC_PYQ_${targetYear}_${Date.now().toString().slice(-4)}.pdf`;
+        await ctx.replyWithDocument(new InputFile(item.pdfPath, outFileName), {
+          caption: `📄 <b>Ruled QCAB Model Answer PDF (${targetYear})</b>\n\n📌 <i>${item.question.slice(0, 80)}...</i>`,
+          parse_mode: "HTML",
+        });
+      } catch (docErr) {
+        console.warn("Could not send PYQ PDF document:", docErr.message);
+      }
+    }
+  } catch (err) {
+    await anim.delete();
+    console.error(`PYQ generation error (${targetYear}):`, err);
+    await ctx.reply(`⚠️ PYQ generation encountered an issue: ${err.message}. Please try again.`);
+  }
+});
+
+// Callback: Compile & Send Master Booklet PDF
+bot.callbackQuery(["pyq:compile_pdf", /^pyq:compile_year:(\d+)$/], async (ctx) => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const yearMatch = ctx.callbackQuery.data.match(/^pyq:compile_year:(\d+)$/);
+  const targetYear = yearMatch ? parseInt(yearMatch[1], 10) : null;
+
+  const anim = await createProgressAnimator(ctx, "COMPILING PYQ MASTER BOOKLET");
+
+  try {
+    await anim.step("📚 Stitching ruled QCAB answer sheets into master booklet...", 50, targetYear ? `Year: ${targetYear}` : "All Years 2012–Present");
+    const result = await compileMasterBookletPdf({ year: targetYear });
+    await anim.delete();
+
+    const title = targetYear ? `TNPSC Group-1 Mains (${targetYear}) PYQ Compendium` : `TNPSC Group-1 Mains (2012–Present) PYQ Compendium`;
+    const docName = `TNPSC_PYQ_${targetYear || "2012_2024"}_Compendium.pdf`;
+
+    await ctx.replyWithDocument(new InputFile(result.filePath, docName), {
+      caption: `🏛️ <b>${title}</b>\n\n📄 <b>Total Pages:</b> <code>${result.totalPages}</code>\n📌 <b>Questions Included:</b> <code>${result.questionsIncluded}</code>\n\n<i>Rendered strictly on authentic TNPSC ruled answer booklet pages.</i>`,
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("⬅️ Back to PYQs", "pyq:browse")
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  } catch (err) {
+    await anim.delete();
+    console.error("Master booklet compilation error:", err);
+    await ctx.reply(`⚠️ Could not compile PDF booklet: ${err.message}\n\n<i>Tip: Generate a few PYQs for this year first using the buttons above!</i>`, {
+      reply_markup: new InlineKeyboard().text("⬅️ Back to PYQs", "pyq:browse"),
+    });
+  }
+});
 
 // /auto command
 bot.command(["auto", "autogenerate"], async (ctx) => {

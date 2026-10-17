@@ -54,19 +54,23 @@ const generateQuestion = (topic, marks) =>
   ask(QUESTION_SYSTEM, `Subject/topic: ${topic}\nMarks: ${marks}\nLanguage: English (Generate strictly in English language only. Do NOT use Tamil.)`);
 
 // Helper to ensure PYQ string strictly contains the authentic exam year e.g. [TNPSC Group-1 Mains PYQ (YYYY)]:
-function ensurePYQYearTag(qStr) {
+function ensurePYQYearTag(qStr, targetYear = null) {
   if (!qStr) return qStr;
   let text = qStr.trim().replace(/^["'`*]+|["'`*]+$/g, "").trim();
+  const chosenYear = targetYear ? String(targetYear) : null;
 
   // If already contains a valid [TNPSC ... (YYYY)]: or [PYQ (YYYY)]:
   const validYearMatch = text.match(/\[(?:TNPSC[^\d\]]*)?(\b(?:19|20)\d{2}\b)[^\]]*\]/i);
   if (validYearMatch) {
+    if (chosenYear && validYearMatch[1] !== chosenYear) {
+      return text.replace(validYearMatch[0], `[TNPSC Group-1 Mains PYQ (${chosenYear})]:`);
+    }
     return text;
   }
 
   // Look for any modern 4-digit exam year (1990-2029) in the string
   const yearMatch = text.match(/\b(199\d|20[0-2]\d)\b/);
-  const detectedYear = yearMatch ? yearMatch[1] : "2022";
+  const detectedYear = chosenYear || (yearMatch ? yearMatch[1] : "2022");
 
   // If there's an existing tag like [TNPSC Group-1 Mains PYQ (Pattern)] or [TNPSC Group-1 Mains PYQ]:
   if (/^\[[^\]]+\]\s*:?/i.test(text)) {
@@ -77,15 +81,19 @@ function ensurePYQYearTag(qStr) {
   return `[TNPSC Group-1 Mains PYQ (${detectedYear})]: ${text}`;
 }
 
-const generatePYQ = async (topic, marks = 15, excludeQuestion = "") => {
+const generatePYQ = async (topic, marks = 15, excludeQuestion = "", targetYear = null) => {
   const extra = excludeQuestion
     ? `\nIMPORTANT: Ensure this question is completely distinct and tests a different syllabus dimension/sub-theme from: "${excludeQuestion}". Do NOT duplicate.`
     : "";
+  const yearMandate = targetYear
+    ? `\nCRITICAL EXAM YEAR MANDATE: You MUST retrieve or reconstruct an authentic question specifically from the official TNPSC Group-1 Mains ${targetYear} exam. Tag MUST strictly be [TNPSC Group-1 Mains PYQ (${targetYear})].`
+    : `\nCRITICAL REQUIREMENT: You MUST include the exact 4-digit past exam year (e.g. 2024, 2023, 2022, 2019, 2017, 2016, 2015, 2012) in the tag like [TNPSC Group-1 Mains PYQ (YYYY)]. Never omit the year or output '(Pattern)'.`;
+
   const rawQ = await ask(
     PYQ_SYSTEM,
-    `Syllabus Topic: ${topic}\nMarks: ${marks}\nLanguage: English (Generate strictly in English language only. Do NOT use Tamil.)\nCRITICAL REQUIREMENT: You MUST include the exact 4-digit past exam year (e.g. 2023, 2022, 2019, 2017, 2016, 2015, 2011) in the tag like [TNPSC Group-1 Mains PYQ (2022)]. Never omit the year or output '(Pattern)'.${extra}`
+    `Syllabus Topic: ${topic}\nMarks: ${marks}\nLanguage: English (Generate strictly in English language only. Do NOT use Tamil.)${yearMandate}${extra}`
   );
-  return ensurePYQYearTag(rawQ);
+  return ensurePYQYearTag(rawQ, targetYear);
 };
 
 const modelAnswer = (question, marks, words) =>

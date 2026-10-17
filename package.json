@@ -9,6 +9,11 @@
     "watch": "node supervisor.js",
     "daily": "node -e \"require('./daily_scheduler').runDailyPYQJob({ force: true })\"",
     "generate": "node auto_generate.js",
+    "pyqs": "node generate_pyqs.js",
+    "pyqs:sample": "node generate_pyqs.js --sample",
+    "pyqs:all": "node generate_pyqs.js",
+    "pyqs:pdf": "node generate_pyqs.js --compile-pdf",
+    "pyqs:stats": "node generate_pyqs.js --stats",
     "ingest": "node url_content_ingester.js",
     "test:llm": "node llm.js"
   },

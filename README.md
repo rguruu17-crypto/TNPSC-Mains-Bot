@@ -32,63 +32,12 @@ A production-ready Telegram bot for **TNPSC Group-1 / Group-2 Mains** answer-wri
    - Evaluates submitted answers in **Text**, **Handwritten Photos**, and **Multi-page PDF documents** via Gemini Vision OCR.
    - Automatically updates the student's score, format checklist, strengths, gaps, and rewritten conclusion into Notion.
 
----
-
-## 🚀 Quick Start
-
-### 1. Installation
-
-```bash
-git clone https://github.com/rguruu17-crypto/TNPSC-Mains-Bot.git
-cd TNPSC-Mains-Bot
-npm install
-```
-
-### 2. Configuration
-
-Copy `.env.example` to `.env` and fill in your API credentials:
-
-```bash
-cp .env.example .env
-```
-
-```env
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-2.5-flash
-NOTION_TOKEN=your_notion_integration_token
-NOTION_DATABASE_ID=your_notion_parent_page_or_database_id
-```
-
-### 3. Running the Bot
-
-```bash
-# Standard start
-npm start
-
-# Or with Auto-Healing Watchdog Supervisor (Recommended)
-npm run watch
-
-# Run manual daily PYQ generation test
-npm run daily
-
-# PYQ Archive Engine (2012 - Current Years)
-npm run pyqs:sample             # Generate sample PYQ for each exam year
-npm run pyqs -- --year=2022     # Generate for specific exam year
-npm run pyqs:stats              # View archive statistics
-npm run pyqs:pdf                # Compile all archived PDFs into master booklet
-```
-
----
-
-## 🏛️ Previous Year Questions (PYQs) Generator (2012 – Present)
-
-Generate authentic TNPSC Group-1 Mains Previous Year Questions from 2012 to current years (2012, 2015, 2016, 2017, 2019, 2022, 2023, 2024):
-- **12-Rule Model Answers**: Introduction with Core Focus Box, structured subheadings with yellow highlights, unique key boxes, and Way Forward.
-- **Notion Hierarchy**: Directly saved under official Unit & Paper pages with `[PYQ YYYY]` tags.
-- **Ruled QCAB PDFs**: Generated on authentic TNPSC ruled answer booklet lines.
-- **Compendium Booklets**: Compiled Year-wise and Master PDF booklets (`data/generated_pdfs/`).
-- **Markdown & JSON Archives**: Auto-updated in `data/pyqs_archive.json` and `data/pyqs_archive.md`.
+5. **🛡️ Admin Panel & Friend Access Control (`/admin`)**:
+   - **Private Study Circle / Whitelist Mode**: Protect your bot quota and Notion database by restricting access exclusively to you and your approved friends.
+   - **Add & Remove Friends**: Add friends in seconds by sending their numeric Telegram User ID or simply forwarding a message from them.
+   - **Interactive 1-Click Access Requests**: Unapproved friends see an informative access screen with their Telegram ID and a `Request Access from Admin` button.
+   - **Instant Telegram Push Notifications**: When a friend requests access, you receive an immediate alert with `[Approve ✅]` and `[Reject ❌]` buttons right in Telegram.
+   - **Instant Friend Welcome**: Approved friends automatically receive a congratulatory Telegram DM welcoming them to the bot!
 
 ---
 
@@ -96,6 +45,11 @@ Generate authentic TNPSC Group-1 Mains Previous Year Questions from 2012 to curr
 
 | Command | Description |
 | :--- | :--- |
+| `/admin` | 🛡️ **Admin Panel**: Manage friends, approve access requests, toggle whitelist mode |
+| `/addfriend <id>` | ➕ **Add Friend**: Grant full access to a friend by Telegram User ID |
+| `/removefriend <id>`| 🗑️ **Remove Friend**: Revoke access for a user |
+| `/friends` | 👥 **Friends List**: View all authorized friends with quick revoke buttons |
+| `/myid` | 🆔 **My Identity**: View your Telegram User ID, role, and current access status |
 | `/start` | Select Paper, Unit, and start answer writing |
 | `/pyqs` | **PYQ Archive (2012–Present)**: Browse by year, generate on-demand, and download master PDF booklets |
 | `/daily` | Trigger/view today's 9:00 AM PYQ session (2 questions + model answers) |

@@ -255,7 +255,11 @@ async function runDailyPYQJob({ force = false, bot = null, onProgress = null } =
       `🔗 <a href="${res1.url}">Open in Notion Topic Page</a>\n\n` +
       `➡️ <i>Tomorrow's 9:00 AM Topic: <b>${nextTopic.topic}</b></i>`;
 
+    const { isUserAllowed } = require("./access_manager");
     for (const chatId of state.subscribedChats) {
+      if (!isUserAllowed(chatId)) {
+        continue;
+      }
       try {
         await targetBot.api.sendMessage(chatId, broadcastMsg, {
           parse_mode: "HTML",

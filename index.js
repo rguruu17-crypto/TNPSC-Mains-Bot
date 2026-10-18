@@ -85,6 +85,26 @@ const {
   detectWebsiteName,
   getAllUsers,
 } = require("./user_manager");
+const {
+  loadAccessState,
+  isAdmin,
+  hasAnyAdmin,
+  addAdmin,
+  isUserAllowed,
+  getUserAccessInfo,
+  addAllowedFriend,
+  removeAllowedFriend,
+  recordPendingRequest,
+  approvePendingRequest,
+  rejectPendingRequest,
+  toggleRestriction,
+  getAllAllowedFriends,
+  getAllPendingRequests,
+  formatAdminPanelCard,
+  formatFriendsListCard,
+  formatPendingRequestsCard,
+  formatAccessDeniedCard,
+} = require("./access_manager");
 
 // Initialize process-level crash prevention guard
 setupProcessGuard();
@@ -355,9 +375,92 @@ function getPapersInlineKeyboard() {
   kb.text("⚡ Auto-Generate for All 9 Units (GS I, II & III)", "action:auto_all_papers")
     .row()
     .text("📊 Health Meter", "action:view_status")
-    .text("⚙️ API Keys & Updater", "action:api_settings");
+    .text("⚙️ API Keys & Updater", "action:api_settings")
+    .row()
+    .text("🛡️ Admin Panel (Friends & Access)", "action:admin_panel");
 
   return kb;
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADMIN & FRIENDS ACCESS CONTROL KEYBOARDS
+// ─────────────────────────────────────────────────────────────
+function getAdminPanelKeyboard(user) {
+  const state = loadAccessState();
+  const friendsCount = Object.keys(state.allowedFriends || {}).length;
+  const pendingCount = Object.keys(state.pendingRequests || {}).length;
+  const modeText = state.restrictionEnabled ? "🟢 Whitelist Only" : "🌐 Public Open";
+
+  return new InlineKeyboard()
+    .text(`👥 Manage Friends (${friendsCount})`, "admin:list_friends:1")
+    .text("➕ Add Friend", "admin:add_friend_prompt")
+    .row()
+    .text(`⏳ Pending Requests (${pendingCount})`, "admin:pending_requests")
+    .text(`🔄 Mode: ${modeText}`, "admin:toggle_restriction")
+    .row()
+    .text("🔑 API Keys & Settings", "action:api_settings")
+    .text("📊 Health Meter", "action:view_status")
+    .row()
+    .text("❌ Close Admin Panel", "admin:close");
+}
+
+function getFriendsListKeyboard(page = 1, totalPages = 1, pageFriends = []) {
+  const kb = new InlineKeyboard();
+
+  pageFriends.forEach((f) => {
+    const displayName = (f.fullName || String(f.id)).slice(0, 16);
+    kb.text(`❌ Remove ${displayName}`, `admin:confirm_remove:${f.id}`).row();
+  });
+
+  if (totalPages > 1) {
+    if (page > 1) {
+      kb.text("◀️ Prev", `admin:list_friends:${page - 1}`);
+    }
+    kb.text(`📄 ${page}/${totalPages}`, "admin:noop");
+    if (page < totalPages) {
+      kb.text("Next ▶️", `admin:list_friends:${page + 1}`);
+    }
+    kb.row();
+  }
+
+  kb.text("➕ Add Another Friend", "admin:add_friend_prompt")
+    .text("⬅️ Back to Admin", "admin:main");
+
+  return kb;
+}
+
+function getFriendConfirmRemoveKeyboard(friendId) {
+  return new InlineKeyboard()
+    .text("⚠️ Yes, Revoke Access", `admin:do_remove:${friendId}`)
+    .text("❌ Cancel", "admin:list_friends:1");
+}
+
+function getPendingRequestsKeyboard(requests = []) {
+  const kb = new InlineKeyboard();
+
+  requests.forEach((r) => {
+    const displayName = (r.fullName || String(r.id)).slice(0, 12);
+    kb.text(`✅ Approve ${displayName}`, `admin:approve:${r.id}`)
+      .text("❌ Reject", `admin:reject:${r.id}`)
+      .row();
+  });
+
+  kb.text("🔄 Refresh Requests", "admin:pending_requests")
+    .text("⬅️ Back to Admin", "admin:main");
+
+  return kb;
+}
+
+function getAccessDeniedKeyboard(user) {
+  return new InlineKeyboard()
+    .text("📩 Request Access from Admin", "user:request_access")
+    .row()
+    .text("🔄 Check My Access Status", "user:check_status");
+}
+
+function getClaimAdminKeyboard() {
+  return new InlineKeyboard()
+    .text("👑 Claim Admin Ownership Now", "admin:claim_ownership");
 }
 
 // TN Official Policy & Stats Bank Categories Keyboard
@@ -1351,8 +1454,57 @@ async function handleSaveToNotion(ctx) {
 // TELEGRAM BOT COMMAND & MESSAGE REGISTRATION
 // ─────────────────────────────────────────────────────────────
 function registerBotHandlers(bot) {
-  // Global Middleware: Auto-subscribe any active user to daily scheduled questions
+  // Global Middleware: Access Control & Live Activity Tracker
   bot.use(async (ctx, next) => {
+    // 1. Record user profile if available
+    if (ctx.from) {
+      try {
+        recordTelegramUser(ctx.from);
+      } catch (_) {}
+    }
+
+    const userId = ctx.from?.id;
+    const isAllowed = isUserAllowed(userId);
+
+    // 2. Exception routes that any user can trigger even if not whitelisted yet
+    const text = (ctx.message?.text || "").trim();
+    const isIdCmd = text.startsWith("/myid") || text.startsWith("/id") || text.startsWith("/whoami");
+    const isAdminCmd = text.startsWith("/admin") || text.startsWith("/panel") || text.startsWith("/adminpanel");
+    const isUserCallback = ctx.callbackQuery?.data?.startsWith("user:") || ctx.callbackQuery?.data === "admin:claim_ownership";
+
+    // Allow claim ownership if no admin exists yet
+    if (!hasAnyAdmin() && (isAdminCmd || ctx.callbackQuery?.data === "admin:claim_ownership")) {
+      return next();
+    }
+
+    // Always allow checking personal ID & access status
+    if (isIdCmd) {
+      return next();
+    }
+
+    // Always allow user access request buttons
+    if (isUserCallback) {
+      return next();
+    }
+
+    // If access restriction is ON and user is NOT allowed
+    if (!isAllowed) {
+      if (ctx.callbackQuery) {
+        await ctx.answerCallbackQuery({
+          text: "🔒 Access Restricted. Please tap 'Request Access from Admin' on the welcome screen.",
+          show_alert: true,
+        }).catch(() => {});
+        return;
+      }
+
+      // If user sends /start or any message: show Access Restricted Screen
+      return ctx.reply(formatAccessDeniedCard(ctx.from), {
+        parse_mode: "HTML",
+        reply_markup: getAccessDeniedKeyboard(ctx.from),
+      });
+    }
+
+    // 3. User is allowed: auto-subscribe to daily alerts
     if (ctx.chat?.id) {
       subscribeChat(ctx.chat.id, { force: false });
     }
@@ -2576,6 +2728,112 @@ bot.on("message:text", async (ctx) => {
     }
   }
 
+  // 1E. Handle Friend Addition input for Admin Panel
+  if (st && st.state === "WAITING_FOR_FRIEND_INPUT") {
+    userState.delete(ctx.chat.id);
+    const rawInput = (ctx.message.text || "").trim();
+
+    if (rawInput.toLowerCase() === "cancel" || rawInput === "❌ Cancel") {
+      return ctx.reply("❌ <b>Friend addition cancelled.</b> Returning to Admin Panel.", {
+        parse_mode: "HTML",
+        reply_markup: getAdminPanelKeyboard(ctx.from),
+      });
+    }
+
+    let friendId = null;
+    let friendFullName = "";
+    let friendUsername = "";
+
+    // 1. Check for Telegram forwarded message
+    if (ctx.message.forward_from) {
+      friendId = String(ctx.message.forward_from.id);
+      friendFullName = [ctx.message.forward_from.first_name, ctx.message.forward_from.last_name].filter(Boolean).join(" ");
+      friendUsername = ctx.message.forward_from.username ? `@${ctx.message.forward_from.username}` : "";
+    } else if (ctx.message.forward_origin?.type === "user" && ctx.message.forward_origin.sender_user) {
+      const u = ctx.message.forward_origin.sender_user;
+      friendId = String(u.id);
+      friendFullName = [u.first_name, u.last_name].filter(Boolean).join(" ");
+      friendUsername = u.username ? `@${u.username}` : "";
+    } else {
+      // 2. Parse numeric ID from text
+      const match = rawInput.match(/\b\d{5,15}\b/);
+      if (match) {
+        friendId = match[0];
+      }
+    }
+
+    if (!friendId) {
+      return ctx.reply(
+        "⚠️ <b>Invalid Telegram User ID</b>\n\nCould not find a valid numeric User ID. Please send a numeric ID (e.g. <code>123456789</code>) or forward a message directly from your friend.",
+        {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("🔁 Try Again", "admin:add_friend_prompt")
+            .text("⬅️ Admin Panel", "admin:main"),
+        }
+      );
+    }
+
+    const note = rawInput.replace(friendId, "").replace(/^[\s\-:,]+/, "").trim() || "Authorized Study Friend";
+
+    const res = addAllowedFriend({
+      id: friendId,
+      username: friendUsername,
+      fullName: friendFullName,
+      addedBy: ctx.from.first_name || `Admin (${ctx.from.id})`,
+      note,
+    });
+
+    if (res.success) {
+      const f = res.friend;
+      const successMsg = [
+        `╔════════════════════════════════════════╗`,
+        `║  ✅ <b>FRIEND ACCESS GRANTED!</b>`,
+        `╚════════════════════════════════════════╝`,
+        `👤 <b>Name:</b> <b>${f.fullName}</b> ${f.username ? `(${f.username})` : ""}`,
+        `🆔 <b>Telegram ID:</b> <code>${f.id}</code>`,
+        `📝 <b>Note:</b> <i>${f.note}</i>`,
+        `📅 <b>Added:</b> <i>${new Date(f.addedAt).toLocaleString("en-IN")}</i>`,
+        ``,
+        `🎉 Your friend now has <b>full, unlimited access</b> to the bot!`,
+      ].join("\n");
+
+      // Notify the friend via Telegram DM if reachable
+      try {
+        await ctx.api.sendMessage(
+          f.id,
+          [
+            `🎉 <b>ACCESS GRANTED!</b>`,
+            `────────────────────────────────────`,
+            `Hello <b>${f.fullName}</b>! 👋`,
+            `The administrator has granted you access to <b>TNPSC Group-1 Mains Specialist Bot</b>!`,
+            ``,
+            `You can now access:`,
+            `• 🏛️ Authentic PYQs & 12-Rule Model Answers`,
+            `• ⏱️ 12-Minute Real-Time Exam Simulator`,
+            `• 📑 Official QCAB Answer Booklet & Revision PDFs`,
+            `• 🌟 TN Policy & Scheme Capsule Vault`,
+            ``,
+            `👉 Tap /start below to begin!`,
+          ].join("\n"),
+          { parse_mode: "HTML" }
+        );
+      } catch (_) {}
+
+      return ctx.reply(successMsg, {
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard()
+          .text("👥 View Friends List", "admin:list_friends:1")
+          .text("➕ Add Another", "admin:add_friend_prompt")
+          .row()
+          .text("🛡️ Back to Admin Panel", "admin:main"),
+      });
+    } else {
+      return ctx.reply(`⚠️ Could not add friend: ${res.error}`, {
+        reply_markup: new InlineKeyboard().text("⬅️ Admin Panel", "admin:main"),
+      });
+    }
+  }
   // 1E. If the message contains one or more URLs, automatically process as IAS / Editorial website content ingestion!
   if (ctx.message.text.match(/https?:\/\/[^\s]+/i)) {
     return await handleIngestUrls(ctx, ctx.message.text);
@@ -3013,6 +3271,7 @@ bot.on("message:document", async (ctx) => {
     console.error("QCAB PDF eval error:", err);
     await ctx.reply(`⚠️ Evaluation error: ${err.message}`);
   }
+});
 // ─────────────────────────────────────────────────────────────
 // PYQ ARCHIVE COMMANDS & HANDLERS (2012 - PRESENT)
 // ─────────────────────────────────────────────────────────────
@@ -3625,6 +3884,564 @@ bot.callbackQuery("action:cancel_key_update", async (ctx) => {
     reply_markup: getPapersInlineKeyboard(),
   });
 });
+
+  // ─────────────────────────────────────────────────────────────
+  // 🛡️ ADMIN PANEL & FRIEND ACCESS CONTROL COMMANDS
+  // ─────────────────────────────────────────────────────────────
+
+  // /admin, /panel, /adminpanel
+  bot.command(["admin", "panel", "adminpanel"], async (ctx) => {
+    userState.delete(ctx.chat.id);
+
+    // If no admin exists yet anywhere, allow this user to claim ownership
+    if (!hasAnyAdmin()) {
+      const claimText = [
+        `👑 <b>ADMIN OWNERSHIP SETUP</b>`,
+        `────────────────────────────────────`,
+        `No Administrator has been configured for this bot yet!`,
+        ``,
+        `👤 <b>Your Name:</b> ${ctx.from.first_name || "User"}`,
+        `🆔 <b>Your Telegram ID:</b> <code>${ctx.from.id}</code>`,
+        ``,
+        `👉 <i>Tap the button below to claim ownership and activate the Admin Panel:</i>`,
+      ].join("\n");
+
+      return ctx.reply(claimText, {
+        parse_mode: "HTML",
+        reply_markup: getClaimAdminKeyboard(),
+      });
+    }
+
+    // Verify admin permissions
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(
+        `⛔ <b>Admin Access Denied</b>\n\nThis Admin Panel is restricted to authorized bot administrators.\n\n🆔 <b>Your Telegram User ID:</b> <code>${ctx.from.id}</code>`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    const card = formatAdminPanelCard(ctx.from);
+    await ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: getAdminPanelKeyboard(ctx.from),
+    });
+  });
+
+  // /addfriend <id> [note] or /allow <id>
+  bot.command(["addfriend", "allow", "add_friend"], async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
+    }
+
+    const text = (ctx.message.text || "").trim();
+    const parts = text.split(/\s+/).slice(1);
+
+    if (parts.length === 0) {
+      userState.set(ctx.chat.id, { state: "WAITING_FOR_FRIEND_INPUT" });
+      return ctx.reply(
+        [
+          `➕ <b>ADD AUTHORIZED FRIEND</b>`,
+          `────────────────────────────────────`,
+          `Please send your friend's <b>Telegram User ID</b> (e.g. <code>123456789</code>), or forward any message from them to this chat!`,
+          ``,
+          `<i>Tip: You can also use:</i>`,
+          `<code>/addfriend 123456789 Friend Name</code>`,
+          ``,
+          `<i>Tap Cancel below to abort:</i>`,
+        ].join("\n"),
+        {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard().text("❌ Cancel", "admin:main"),
+        }
+      );
+    }
+
+    const idMatch = parts[0].match(/\b\d{5,15}\b/);
+    if (!idMatch) {
+      return ctx.reply("⚠️ <b>Invalid Telegram ID.</b> Please provide a numeric ID, e.g.: <code>/addfriend 123456789</code>", {
+        parse_mode: "HTML",
+      });
+    }
+
+    const friendId = idMatch[0];
+    const note = parts.slice(1).join(" ") || "Authorized Study Friend";
+
+    const res = addAllowedFriend({
+      id: friendId,
+      addedBy: ctx.from.first_name || `Admin (${ctx.from.id})`,
+      note,
+    });
+
+    if (res.success) {
+      const f = res.friend;
+      // Try to notify the friend
+      try {
+        await ctx.api.sendMessage(
+          f.id,
+          `🎉 <b>ACCESS GRANTED!</b>\n\nHello <b>${f.fullName}</b>! The admin has granted you access to <b>TNPSC Group-1 Mains Specialist Bot</b>.\n\nTap /start to begin!`,
+          { parse_mode: "HTML" }
+        );
+      } catch (_) {}
+
+      return ctx.reply(
+        `✅ <b>Friend Access Granted!</b>\n\n👤 <b>${f.fullName}</b> ${f.username ? `(${f.username})` : ""}\n🆔 <code>${f.id}</code>\n📝 <i>${f.note}</i>\n\nYour friend now has full access.`,
+        {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("👥 View Friends List", "admin:list_friends:1")
+            .text("➕ Add Another", "admin:add_friend_prompt")
+            .row()
+            .text("🛡️ Admin Panel", "admin:main"),
+        }
+      );
+    } else {
+      return ctx.reply(`⚠️ Could not add friend: ${res.error}`);
+    }
+  });
+
+  // /removefriend <id> or /revoke <id>
+  bot.command(["removefriend", "revoke", "remove_friend"], async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
+    }
+
+    const text = (ctx.message.text || "").trim();
+    const parts = text.split(/\s+/).slice(1);
+
+    if (parts.length === 0) {
+      const all = getAllAllowedFriends();
+      const card = formatFriendsListCard(1, 5);
+      const kb = getFriendsListKeyboard(1, Math.ceil(all.length / 5) || 1, all.slice(0, 5));
+      return ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
+    }
+
+    const idMatch = parts[0].match(/\b\d{5,15}\b/);
+    if (!idMatch) {
+      return ctx.reply("⚠️ Invalid Telegram ID. Please provide a numeric ID, e.g.: <code>/removefriend 123456789</code>", {
+        parse_mode: "HTML",
+      });
+    }
+
+    const res = removeAllowedFriend(idMatch[0]);
+    if (res.success) {
+      return ctx.reply(`🗑️ <b>Access Revoked:</b> Removed <b>${res.removed.fullName}</b> (ID: <code>${idMatch[0]}</code>) from authorized friends list.`, {
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard()
+          .text("👥 View Friends List", "admin:list_friends:1")
+          .text("🛡️ Admin Panel", "admin:main"),
+      });
+    } else {
+      return ctx.reply(`⚠️ ${res.error}`);
+    }
+  });
+
+  // /friends, /allowed, /whitelist
+  bot.command(["friends", "allowed", "whitelist"], async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
+    }
+    const all = getAllAllowedFriends();
+    const totalPages = Math.ceil(all.length / 5) || 1;
+    const card = formatFriendsListCard(1, 5);
+    const kb = getFriendsListKeyboard(1, totalPages, all.slice(0, 5));
+    await ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
+  });
+
+  // /requests, /pending
+  bot.command(["requests", "pending"], async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
+    }
+    const reqs = getAllPendingRequests();
+    const card = formatPendingRequestsCard();
+    const kb = getPendingRequestsKeyboard(reqs);
+    await ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
+  });
+
+  // /myid, /id, /whoami (available to all users)
+  bot.command(["myid", "id", "whoami"], async (ctx) => {
+    const info = getUserAccessInfo(ctx.from.id);
+    const fullName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" ") || "User";
+    const text = [
+      `🆔 <b>TELEGRAM USER IDENTITY</b>`,
+      `────────────────────────────────────`,
+      `👤 <b>Name:</b> <b>${fullName}</b>`,
+      ctx.from.username ? `🔖 <b>Username:</b> @${ctx.from.username}` : `🔖 <b>Username:</b> (None)`,
+      `🆔 <b>Telegram User ID:</b> <code>${ctx.from.id}</code>`,
+      `👑 <b>Role:</b> <b>${info.role}</b>`,
+      `🔒 <b>Access Status:</b> ${info.isAllowed ? "🟢 <b>Granted (Full Access)</b>" : "🔴 <b>Restricted (Pending Approval)</b>"}`,
+      `🌐 <b>Bot Mode:</b> <i>${info.restrictionEnabled ? "Private Whitelist Mode" : "Public Mode"}</i>`,
+      ``,
+      `<i>Tip: Share your ID <code>${ctx.from.id}</code> with the bot admin to get access!</i>`,
+    ].join("\n");
+
+    await ctx.reply(text, {
+      parse_mode: "HTML",
+      reply_markup: info.isAllowed ? getPapersInlineKeyboard() : getAccessDeniedKeyboard(ctx.from),
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 🛡️ ADMIN PANEL & ACCESS CALLBACK QUERIES
+  // ─────────────────────────────────────────────────────────────
+
+  bot.callbackQuery("action:admin_panel", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!hasAnyAdmin()) {
+      return ctx.reply(
+        [
+          `👑 <b>ADMIN OWNERSHIP SETUP</b>`,
+          `────────────────────────────────────`,
+          `No Administrator has been configured for this bot yet!`,
+          ``,
+          `👤 <b>Your Name:</b> ${ctx.from.first_name || "User"}`,
+          `🆔 <b>Your Telegram ID:</b> <code>${ctx.from.id}</code>`,
+          ``,
+          `👉 Tap below to claim ownership as the Primary Bot Admin:`,
+        ].join("\n"),
+        { parse_mode: "HTML", reply_markup: getClaimAdminKeyboard() }
+      );
+    }
+
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(`⛔ <b>Admin Access Denied</b>\n\nThis Admin Panel is restricted to the bot administrator.\nYour Telegram User ID is: <code>${ctx.from.id}</code>`, {
+        parse_mode: "HTML",
+      });
+    }
+
+    userState.delete(ctx.chat.id);
+    const card = formatAdminPanelCard(ctx.from);
+    await ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: getAdminPanelKeyboard(ctx.from),
+    });
+  });
+
+  bot.callbackQuery("admin:main", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!isAdmin(ctx.from.id)) return;
+    userState.delete(ctx.chat.id);
+    const card = formatAdminPanelCard(ctx.from);
+    try {
+      await ctx.editMessageText(card, { parse_mode: "HTML", reply_markup: getAdminPanelKeyboard(ctx.from) });
+    } catch (_) {
+      await ctx.reply(card, { parse_mode: "HTML", reply_markup: getAdminPanelKeyboard(ctx.from) });
+    }
+  });
+
+  bot.callbackQuery(/^admin:list_friends:(\d+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!isAdmin(ctx.from.id)) return;
+    const page = parseInt(ctx.match[1], 10) || 1;
+    const all = getAllAllowedFriends();
+    const pageSize = 5;
+    const totalPages = Math.ceil(all.length / pageSize) || 1;
+    const currPage = Math.max(1, Math.min(page, totalPages));
+    const startIdx = (currPage - 1) * pageSize;
+    const pageFriends = all.slice(startIdx, startIdx + pageSize);
+
+    const card = formatFriendsListCard(currPage, pageSize);
+    const kb = getFriendsListKeyboard(currPage, totalPages, pageFriends);
+    try {
+      await ctx.editMessageText(card, { parse_mode: "HTML", reply_markup: kb });
+    } catch (_) {
+      await ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
+    }
+  });
+
+  bot.callbackQuery("admin:add_friend_prompt", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!isAdmin(ctx.from.id)) return;
+    userState.set(ctx.chat.id, { state: "WAITING_FOR_FRIEND_INPUT" });
+    const prompt = [
+      `➕ <b>ADD AUTHORIZED FRIEND</b>`,
+      `────────────────────────────────────`,
+      `👉 <b>Method 1 (Paste ID):</b>`,
+      `Send your friend's numeric Telegram User ID (e.g. <code>123456789</code>).`,
+      `You can also add a note: <code>123456789 - Senthil Study Partner</code>`,
+      ``,
+      `👉 <b>Method 2 (Forward Message):</b>`,
+      `Simply forward any message from your friend into this chat!`,
+      ``,
+      `<i>Tap Cancel below to abort:</i>`,
+    ].join("\n");
+
+    await ctx.reply(prompt, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard().text("❌ Cancel", "admin:main"),
+    });
+  });
+
+  bot.callbackQuery(/^admin:confirm_remove:(\d+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!isAdmin(ctx.from.id)) return;
+    const friendId = ctx.match[1];
+    const state = loadAccessState();
+    const friend = state.allowedFriends[friendId];
+    const name = friend?.fullName || `User ID ${friendId}`;
+
+    const prompt = [
+      `⚠️ <b>CONFIRM REVOKE ACCESS</b>`,
+      `────────────────────────────────────`,
+      `Are you sure you want to revoke access for:`,
+      `👤 <b>${name}</b> ${friend?.username ? `(${friend.username})` : ""}`,
+      `🆔 <code>${friendId}</code>`,
+      ``,
+      `This friend will immediately lose access to all bot features until re-added.`,
+    ].join("\n");
+
+    try {
+      await ctx.editMessageText(prompt, {
+        parse_mode: "HTML",
+        reply_markup: getFriendConfirmRemoveKeyboard(friendId),
+      });
+    } catch (_) {
+      await ctx.reply(prompt, {
+        parse_mode: "HTML",
+        reply_markup: getFriendConfirmRemoveKeyboard(friendId),
+      });
+    }
+  });
+
+  bot.callbackQuery(/^admin:do_remove:(\d+)$/, async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return;
+    const friendId = ctx.match[1];
+    const res = removeAllowedFriend(friendId);
+    if (res.success) {
+      await ctx.answerCallbackQuery({ text: `Revoked access for ${res.removed.fullName || friendId}` });
+      const msg = [
+        `🗑️ <b>ACCESS REVOKED</b>`,
+        `────────────────────────────────────`,
+        `👤 <b>User:</b> <b>${res.removed.fullName}</b>`,
+        `🆔 <b>Telegram ID:</b> <code>${friendId}</code>`,
+        `✅ Successfully removed from authorized friends list.`,
+      ].join("\n");
+      try {
+        await ctx.editMessageText(msg, {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("👥 View Friends List", "admin:list_friends:1")
+            .text("🛡️ Admin Panel", "admin:main"),
+        });
+      } catch (_) {
+        await ctx.reply(msg, {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("👥 View Friends List", "admin:list_friends:1")
+            .text("🛡️ Admin Panel", "admin:main"),
+        });
+      }
+    } else {
+      await ctx.answerCallbackQuery({ text: `Error: ${res.error}`, show_alert: true });
+    }
+  });
+
+  bot.callbackQuery("admin:pending_requests", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!isAdmin(ctx.from.id)) return;
+    const reqs = getAllPendingRequests();
+    const card = formatPendingRequestsCard();
+    const kb = getPendingRequestsKeyboard(reqs);
+    try {
+      await ctx.editMessageText(card, { parse_mode: "HTML", reply_markup: kb });
+    } catch (_) {
+      await ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
+    }
+  });
+
+  bot.callbackQuery(/^admin:approve:(\d+)$/, async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.answerCallbackQuery({ text: "⛔ Only administrators can approve requests.", show_alert: true });
+    }
+    const targetUserId = ctx.match[1];
+    const res = approvePendingRequest(targetUserId, ctx.from.first_name || `Admin (${ctx.from.id})`);
+
+    if (res.success) {
+      await ctx.answerCallbackQuery({ text: `✅ Approved access for ID ${targetUserId}!` }).catch(() => {});
+      try {
+        await ctx.editMessageText(
+          [
+            `✅ <b>ACCESS APPROVED!</b>`,
+            `────────────────────────────────────`,
+            `👤 <b>Friend:</b> <b>${res.friend.fullName}</b> ${res.friend.username ? `(${res.friend.username})` : ""}`,
+            `🆔 <b>Telegram ID:</b> <code>${res.friend.id}</code>`,
+            `👑 <b>Approved By:</b> ${ctx.from.first_name || "Admin"}`,
+            `📅 <b>Date:</b> <i>${new Date().toLocaleString("en-IN")}</i>`,
+            ``,
+            `<i>User has been added to authorized friends list and notified.</i>`,
+          ].join("\n"),
+          {
+            parse_mode: "HTML",
+            reply_markup: new InlineKeyboard()
+              .text("👥 View Friends List", "admin:list_friends:1")
+              .text("🛡️ Admin Panel", "admin:main"),
+          }
+        );
+      } catch (_) {}
+
+      // Notify friend directly
+      try {
+        await ctx.api.sendMessage(
+          targetUserId,
+          [
+            `🎉 <b>ACCESS GRANTED!</b>`,
+            `────────────────────────────────────`,
+            `Hello <b>${res.friend.fullName}</b>! 👋`,
+            `The administrator has approved your request!`,
+            ``,
+            `You now have <b>full access</b> to the <b>TNPSC Group-1 Mains Specialist Bot</b>!`,
+            `• 🏛️ 12-Rule Model Answers & Authentic PYQs`,
+            `• ⏱️ 12-Minute Real-Time Exam Simulator`,
+            `• 📑 QCAB Answer Booklet & Revision Bible PDFs`,
+            `• 🌟 TN Policy & Scheme Capsule Vault`,
+            ``,
+            `👉 Tap /start to begin your preparation!`,
+          ].join("\n"),
+          { parse_mode: "HTML" }
+        );
+      } catch (_) {}
+    } else {
+      await ctx.answerCallbackQuery({ text: `⚠️ Error: ${res.error}`, show_alert: true });
+    }
+  });
+
+  bot.callbackQuery(/^admin:reject:(\d+)$/, async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.answerCallbackQuery({ text: "⛔ Only administrators can reject requests.", show_alert: true });
+    }
+    const targetUserId = ctx.match[1];
+    rejectPendingRequest(targetUserId);
+
+    await ctx.answerCallbackQuery({ text: `❌ Request declined.` }).catch(() => {});
+    try {
+      await ctx.editMessageText(
+        [
+          `❌ <b>ACCESS REQUEST DECLINED</b>`,
+          `────────────────────────────────────`,
+          `🆔 <b>Telegram ID:</b> <code>${targetUserId}</code>`,
+          `👑 <b>Declined By:</b> ${ctx.from.first_name || "Admin"}`,
+          `📅 <b>Date:</b> <i>${new Date().toLocaleString("en-IN")}</i>`,
+        ].join("\n"),
+        {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard().text("🛡️ Back to Admin Panel", "admin:main"),
+        }
+      );
+    } catch (_) {}
+  });
+
+  bot.callbackQuery("admin:toggle_restriction", async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return;
+    const newStatus = toggleRestriction();
+    await ctx.answerCallbackQuery({
+      text: newStatus ? "🔒 Restriction ON: Whitelist only" : "🌐 Restriction OFF: Open to public",
+    }).catch(() => {});
+    const card = formatAdminPanelCard(ctx.from);
+    try {
+      await ctx.editMessageText(card, {
+        parse_mode: "HTML",
+        reply_markup: getAdminPanelKeyboard(ctx.from),
+      });
+    } catch (_) {
+      await ctx.reply(card, {
+        parse_mode: "HTML",
+        reply_markup: getAdminPanelKeyboard(ctx.from),
+      });
+    }
+  });
+
+  bot.callbackQuery("admin:claim_ownership", async (ctx) => {
+    if (hasAnyAdmin() && !isAdmin(ctx.from.id)) {
+      return ctx.answerCallbackQuery({ text: "⛔ An administrator has already claimed this bot.", show_alert: true });
+    }
+    addAdmin(ctx.from.id, true);
+    await ctx.answerCallbackQuery({ text: "👑 Congratulations! You are now the Bot Administrator." }).catch(() => {});
+    userState.delete(ctx.chat.id);
+    const card = formatAdminPanelCard(ctx.from);
+    await ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: getAdminPanelKeyboard(ctx.from),
+    });
+  });
+
+  bot.callbackQuery("admin:close", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    userState.delete(ctx.chat.id);
+    await ctx.deleteMessage().catch(() => {});
+  });
+
+  bot.callbackQuery("admin:noop", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+  });
+
+  bot.callbackQuery("user:request_access", async (ctx) => {
+    const res = recordPendingRequest(ctx.from);
+    if (res?.status === "already_allowed") {
+      return ctx.answerCallbackQuery({ text: "You already have access to the bot!", show_alert: true });
+    }
+
+    await ctx.answerCallbackQuery({ text: "✅ Access request submitted to Admin!", show_alert: true }).catch(() => {});
+
+    try {
+      await ctx.editMessageText(
+        [
+          `⏳ <b>ACCESS REQUEST SUBMITTED!</b>`,
+          `────────────────────────────────────`,
+          `Hello <b>${ctx.from.first_name || "Friend"}</b>! 👋`,
+          ``,
+          `Your access request has been sent to the Administrator.`,
+          `🆔 <b>Your Telegram ID:</b> <code>${ctx.from.id}</code>`,
+          ``,
+          `You will receive an automatic notification here the moment the Admin approves your request!`,
+        ].join("\n"),
+        {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard().text("🔄 Check My Status", "user:check_status"),
+        }
+      );
+    } catch (_) {}
+
+    // Alert all admins
+    const admins = loadAccessState().admins;
+    const reqUser = ctx.from;
+    const reqNotification = [
+      `🔔 <b>NEW ACCESS REQUEST:</b>`,
+      `────────────────────────────────────`,
+      `👤 <b>Name:</b> <b>${[reqUser.first_name, reqUser.last_name].filter(Boolean).join(" ") || "Friend"}</b>`,
+      reqUser.username ? `🔖 <b>Username:</b> @${reqUser.username}` : `🔖 <b>Username:</b> (No username)`,
+      `🆔 <b>Telegram User ID:</b> <code>${reqUser.id}</code>`,
+      `⏰ <b>Requested:</b> <i>${new Date().toLocaleString("en-IN")}</i>`,
+      ``,
+      `<i>Tap below to grant access immediately:</i>`,
+    ].join("\n");
+
+    for (const aId of admins) {
+      try {
+        await ctx.api.sendMessage(aId, reqNotification, {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("✅ Approve & Add Friend", `admin:approve:${reqUser.id}`)
+            .text("❌ Reject", `admin:reject:${reqUser.id}`),
+        });
+      } catch (err) {
+        console.warn(`[Access Manager] Failed to notify admin ${aId}:`, err.message);
+      }
+    }
+  });
+
+  bot.callbackQuery("user:check_status", async (ctx) => {
+    const info = getUserAccessInfo(ctx.from.id);
+    if (info.isAllowed) {
+      await ctx.answerCallbackQuery({ text: "🎉 Access Approved! Welcome!", show_alert: true }).catch(() => {});
+      userState.delete(ctx.chat.id);
+      return ctx.reply("🎉 <b>Access Approved!</b> Welcome to TNPSC Group-1 Mains Specialist Bot.\n\nTap /start to begin practice.", {
+        parse_mode: "HTML",
+        reply_markup: getPapersInlineKeyboard(),
+      });
+    } else {
+      await ctx.answerCallbackQuery({ text: "⏳ Request is still awaiting Admin approval.", show_alert: true }).catch(() => {});
+    }
+  });
 } // end registerBotHandlers
 
 // ─────────────────────────────────────────────────────────────
@@ -3665,6 +4482,9 @@ if (bot) {
     { command: "auto", description: "Auto-generate Q&A and save to Notion" },
     { command: "url", description: "🌐 Ingest IAS article URL(s) directly to Notion" },
     { command: "model", description: "Get official 12-rule model answer" },
+    { command: "admin", description: "🛡️ Admin Panel (Manage Friends & Access)" },
+    { command: "friends", description: "👥 View Authorized Friends List" },
+    { command: "myid", description: "🆔 Check My Telegram ID & Access Status" },
   ]).catch(() => {});
 
   bot.start({
@@ -3777,11 +4597,13 @@ function generateDashboardHTML({ botConnected, missingVars, schedulerStatus, por
   const statusColor = isHealthy ? "#10b981" : "#f59e0b";
   const statusLabel = isHealthy ? "Online & Healthy" : "Setup Attention Needed";
 
+  const accessState = loadAccessState();
   const envRows = [
     { name: "TELEGRAM_BOT_TOKEN", set: Boolean(process.env.TELEGRAM_BOT_TOKEN) },
     { name: "GEMINI_API_KEY", set: Boolean(process.env.GEMINI_API_KEY) },
     { name: "NOTION_TOKEN", set: Boolean(process.env.NOTION_TOKEN) },
     { name: "NOTION_DATABASE_ID", set: Boolean(process.env.NOTION_DATABASE_ID) },
+    { name: "ADMIN_ID", set: Boolean(process.env.ADMIN_ID || accessState.admins.length > 0), value: accessState.admins.join(", ") || "Configured via Admin Panel" },
     { name: "PORT", set: Boolean(process.env.PORT), value: String(port) },
     { name: "GEMINI_MODEL", set: Boolean(process.env.GEMINI_MODEL), value: process.env.GEMINI_MODEL || "gemini-2.5-flash (default)" },
   ].map((item) => `
@@ -3934,6 +4756,11 @@ function generateDashboardHTML({ botConnected, missingVars, schedulerStatus, por
         <div class="card-title">🛡️ Auto-Healing Engine</div>
         <div class="card-val" style="color: #34d399;">Active (Multi-Tier)</div>
         <div class="card-desc">Model failover & State self-repair</div>
+      </div>
+      <div class="card">
+        <div class="card-title">👥 Friend Access Control</div>
+        <div class="card-val" style="color: ${accessState.restrictionEnabled ? '#34d399' : '#60a5fa'};">${accessState.restrictionEnabled ? "Restricted (Whitelist)" : "Public Open"}</div>
+        <div class="card-desc">${Object.keys(accessState.allowedFriends || {}).length} Friend(s) Whitelisted • ${accessState.admins.length} Admin(s)</div>
       </div>
     </div>
 

@@ -20,6 +20,15 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 // HELPER DRAWING FUNCTIONS
 // ─────────────────────────────────────────────────────────────
 
+function cleanPdfText(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/₹/g, "Rs. ")
+    .replace(/[–—]/g, "-")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"');
+}
+
 function drawQCABHeader(doc, { paperCode = "PAPER II", pageNum = 1, totalPages = 2 }) {
   doc.lineWidth(1.5).rect(40, 36, 515, 60).stroke("#1e293b");
 
@@ -517,39 +526,72 @@ function generateRevisionBiblePdf({ items = [], capsules = [] }) {
       doc.moveDown(0.8);
 
       capsules.forEach((c, idx) => {
-        if (doc.y > 650) {
+        // Ensure entire card fits on the page; if near bottom, start a fresh page
+        if (doc.y > 630) {
           doc.addPage();
         }
 
-        doc.rect(40, doc.y, 515, 17).fill("#1e293b");
+        const cardTopY = doc.y;
+
+        // 1. Dark Header Bar for Capsule Title
+        doc.rect(40, cardTopY, 515, 18).fill("#1e293b");
         doc
           .font("Helvetica-Bold")
           .fontSize(8.5)
           .fillColor("#ffffff")
-          .text(`${idx + 1}. ${c.title.toUpperCase()}`, 45, doc.y - 13);
+          .text(`${idx + 1}. ${cleanPdfText(c.title).toUpperCase()}`, 46, cardTopY + 5, {
+            width: 503,
+            lineBreak: false,
+            ellipsis: true,
+          });
 
-        doc.moveDown(0.5);
+        // 2. Light Sub-header / Meta Bar (Nodal, Outlay, Beneficiaries)
+        const metaTopY = cardTopY + 18;
+        const nodal = cleanPdfText(c.nodal);
+        const outlay = cleanPdfText(c.outlay);
+        const target = cleanPdfText(c.target);
+
+        doc.rect(40, metaTopY, 515, 18).fillAndStroke("#f8fafc", "#cbd5e1");
         doc
           .font("Helvetica-Bold")
-          .fontSize(8)
+          .fontSize(7.2)
           .fillColor("#0f172a")
-          .text(`Nodal: ${c.nodal}  |  Outlay: ${c.outlay}  |  Beneficiaries: ${c.target}`);
+          .text(`Nodal: ${nodal}  |  Outlay: ${outlay}  |  Beneficiaries: ${target}`, 46, metaTopY + 5, {
+            width: 503,
+            lineBreak: false,
+            ellipsis: true,
+          });
 
-        doc.moveDown(0.3);
+        // 3. Move doc.y to immediately below the metadata bar
+        doc.y = metaTopY + 23;
+
+        // 4. Section Label
         doc
           .font("Helvetica-Bold")
-          .fontSize(7.5)
+          .fontSize(7.8)
           .fillColor("#2563eb")
-          .text("12-Rule Answer Insertion Points:");
+          .text("12-Rule Answer Insertion Points:", 46, doc.y);
+
+        doc.moveDown(0.2);
+
+        // 5. Bullets
+        const introHook = cleanPdfText(c.mainsPlacement?.introHook || "");
+        const uniqueKey = cleanPdfText(c.mainsPlacement?.uniqueKey || "");
+        const wayForward = cleanPdfText(c.mainsPlacement?.wayForward || "");
+
         doc
           .font("Helvetica")
           .fontSize(7.5)
-          .fillColor("#1e293b")
-          .text(`• Current Affairs Hook: "${c.mainsPlacement.introHook}"`)
-          .text(`• Unique Key Box: "${c.mainsPlacement.uniqueKey}"`)
-          .text(`• Conclusion Way Forward: "${c.mainsPlacement.wayForward}"`);
+          .fillColor("#334155")
+          .text(`• Current Affairs Hook: "${introHook}"`, 46, doc.y, { width: 503 })
+          .text(`• Unique Key Box: "${uniqueKey}"`, 46, doc.y, { width: 503 })
+          .text(`• Conclusion Way Forward: "${wayForward}"`, 46, doc.y, { width: 503 });
 
-        doc.moveDown(1);
+        doc.moveDown(0.5);
+
+        // 6. Subtle Separator Line
+        doc.lineWidth(0.5).strokeColor("#e2e8f0").moveTo(40, doc.y).lineTo(555, doc.y).stroke();
+        doc.moveDown(0.5);
       });
 
       // ───────────────────────────────────────────────
@@ -603,7 +645,7 @@ function generateRevisionBiblePdf({ items = [], capsules = [] }) {
         .font("Helvetica")
         .fontSize(7.5)
         .fillColor("#1e293b")
-        .text("Pudhumai Penn (Moovalur Ramamirtham Ammaiyar Higher Education Assurance Scheme) allocates ₹1,000/month directly into bank accounts of girl students from government schools, backed by a ₹370 Cr budget outlay (2024-25), benefiting over 4.8 lakh collegiate girls.", 46, curY + 14, { width: 503 });
+        .text("Pudhumai Penn (Moovalur Ramamirtham Ammaiyar Higher Education Assurance Scheme) allocates Rs. 1,000/month directly into bank accounts of girl students from government schools, backed by a Rs. 370 Cr budget outlay (2024-25), benefiting over 4.8 lakh collegiate girls.", 46, curY + 14, { width: 503 });
       curY += 34;
 
       // Subheading 1

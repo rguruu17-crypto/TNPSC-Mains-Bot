@@ -1,6 +1,6 @@
 require("dotenv").config();
 const http = require("http");
-const { Bot, InlineKeyboard, InputFile } = require("grammy");
+const { Bot, InlineKeyboard, Keyboard, InputFile } = require("grammy");
 const llm = require("./llm");
 const { saveSession, appendEvaluationToSession, UNIT_METADATA } = require("./notion");
 const { ALL_UNITS, generateAndSaveOne } = require("./auto_generate");
@@ -349,6 +349,10 @@ function getPapersInlineKeyboard() {
     .text("⚡ Run Today's 2 PYQs", "action:run_daily_now")
     .row();
 
+  // Prominent Admin Panel button in main menu
+  kb.text("🛡️ ADMIN PANEL (Manage Friends & Access)", "action:admin_panel")
+    .row();
+
   kb.text("📜 General Studies I (Paper II)", "paper:GS1")
     .row()
     .text("⚖️ General Studies II (Paper III)", "paper:GS2")
@@ -377,9 +381,29 @@ function getPapersInlineKeyboard() {
     .text("📊 Health Meter", "action:view_status")
     .text("⚙️ API Keys & Updater", "action:api_settings")
     .row()
-    .text("🛡️ Admin Panel (Friends & Access)", "action:admin_panel");
+    .text("🛡️ Open Admin Panel", "action:admin_panel");
 
   return kb;
+}
+
+// ─────────────────────────────────────────────────────────────
+// PERSISTENT BOTTOM BUTTON MENU (Docked at bottom of chat)
+// ─────────────────────────────────────────────────────────────
+function getMainReplyKeyboard(userId) {
+  return new Keyboard()
+    .text("📚 Syllabus Menu")
+    .text("⏱️ 12-Min Mock")
+    .row()
+    .text("🛡️ Admin Panel")
+    .text("👥 Friends List")
+    .row()
+    .text("📊 Analytics")
+    .text("🌟 Capsules")
+    .row()
+    .text("🎯 TN Stats")
+    .text("🆔 My ID")
+    .resized()
+    .persistent();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1520,9 +1544,10 @@ function registerBotHandlers(bot) {
     const healthText = formatHealthMeterHTML(false);
     const pipelineText = formatPipelineHTML(pipeline);
 
-    // Remove any previously docked bottom keyboard
+    // Attach the persistent bottom button menu
     await ctx.reply("🎯 <b>Welcome to TNPSC Group-1 Mains Specialist Bot</b>", {
-      reply_markup: { remove_keyboard: true },
+      parse_mode: "HTML",
+      reply_markup: getMainReplyKeyboard(ctx.from?.id),
     });
 
     const status = getSchedulerStatus();
@@ -2489,6 +2514,109 @@ bot.callbackQuery("budget:sectors", async (ctx) => {
 // Text message handler
 bot.on("message:text", async (ctx) => {
   if (ctx.message.text.startsWith("/")) return;
+
+  const trimmedText = ctx.message.text.trim();
+
+  // 0. Handle Persistent Bottom Button Menu clicks
+  if (trimmedText === "🛡️ Admin Panel" || trimmedText === "Admin Panel") {
+    userState.delete(ctx.chat.id);
+    if (!hasAnyAdmin()) {
+      return ctx.reply(
+        [
+          `👑 <b>ADMIN OWNERSHIP SETUP</b>`,
+          `────────────────────────────────────`,
+          `No Administrator has been configured for this bot yet!`,
+          ``,
+          `👤 <b>Your Name:</b> ${ctx.from.first_name || "User"}`,
+          `🆔 <b>Your Telegram ID:</b> <code>${ctx.from.id}</code>`,
+          ``,
+          `👉 Tap below to claim ownership as the Primary Bot Admin:`,
+        ].join("\n"),
+        { parse_mode: "HTML", reply_markup: getClaimAdminKeyboard() }
+      );
+    }
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(
+        `⛔ <b>Admin Access Denied</b>\n\nThis Admin Panel is restricted to the bot administrator.\nYour Telegram User ID is: <code>${ctx.from.id}</code>`,
+        { parse_mode: "HTML" }
+      );
+    }
+    const card = formatAdminPanelCard(ctx.from);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: getAdminPanelKeyboard(ctx.from),
+    });
+  }
+
+  if (trimmedText === "👥 Friends List" || trimmedText === "Friends List") {
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
+    }
+    const all = getAllAllowedFriends();
+    const totalPages = Math.ceil(all.length / 5) || 1;
+    const card = formatFriendsListCard(1, 5);
+    const kb = getFriendsListKeyboard(1, totalPages, all.slice(0, 5));
+    return ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
+  }
+
+  if (trimmedText === "📚 Syllabus Menu" || trimmedText === "Syllabus Menu") {
+    userState.delete(ctx.chat.id);
+    return ctx.reply("📚 <b>TNPSC Mains Syllabus Navigation:</b>\n\nSelect a General Studies Paper to practice:", {
+      parse_mode: "HTML",
+      reply_markup: getPapersInlineKeyboard(),
+    });
+  }
+
+  if (trimmedText === "🆔 My ID" || trimmedText === "My ID") {
+    const info = getUserAccessInfo(ctx.from.id);
+    const fullName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" ") || "User";
+    const text = [
+      `🆔 <b>TELEGRAM USER IDENTITY</b>`,
+      `────────────────────────────────────`,
+      `👤 <b>Name:</b> <b>${fullName}</b>`,
+      ctx.from.username ? `🔖 <b>Username:</b> @${ctx.from.username}` : `🔖 <b>Username:</b> (None)`,
+      `🆔 <b>Telegram User ID:</b> <code>${ctx.from.id}</code>`,
+      `👑 <b>Role:</b> <b>${info.role}</b>`,
+      `🔒 <b>Access Status:</b> ${info.isAllowed ? "🟢 <b>Granted (Full Access)</b>" : "🔴 <b>Restricted (Pending Approval)</b>"}`,
+      `🌐 <b>Bot Mode:</b> <i>${info.restrictionEnabled ? "Private Whitelist Mode" : "Public Mode"}</i>`,
+      ``,
+      `<i>Tip: Share your ID <code>${ctx.from.id}</code> with the bot admin to get access!</i>`,
+    ].join("\n");
+
+    return ctx.reply(text, {
+      parse_mode: "HTML",
+      reply_markup: info.isAllowed ? getPapersInlineKeyboard() : getAccessDeniedKeyboard(ctx.from),
+    });
+  }
+
+  if (trimmedText === "⏱️ 12-Min Mock") {
+    userState.delete(ctx.chat.id);
+    return ctx.reply(
+      `⏱️ <b>12-Minute Real-Time Exam Simulator</b>\n\nSelect a General Studies Paper to begin your timed 15-mark answer writing test:`,
+      { parse_mode: "HTML", reply_markup: getPapersInlineKeyboard() }
+    );
+  }
+
+  if (trimmedText === "📊 Analytics") {
+    return ctx.reply(formatAnalyticsCard(ctx.chat.id), {
+      parse_mode: "HTML",
+      reply_markup: getPapersInlineKeyboard(),
+    });
+  }
+
+  if (trimmedText === "🌟 Capsules") {
+    return ctx.reply(formatCapsuleCard(SCHEME_CAPSULES[0]), {
+      parse_mode: "HTML",
+      reply_markup: getPapersInlineKeyboard(),
+    });
+  }
+
+  if (trimmedText === "🎯 TN Stats") {
+    return ctx.reply("🎯 <b>Tamil Nadu Official Policy & Stats Bank</b>\n\nSelect a category to view high-yield citations:", {
+      parse_mode: "HTML",
+      reply_markup: getStatsCategoriesKeyboard(),
+    });
+  }
 
   // 1. If user is in "WAITING_FOR_TOPIC" state, prompt user to choose Question Type (PYQ vs Practice Question) & Marks (10M vs 15M)
   const st = userState.get(ctx.chat.id);
@@ -4461,6 +4589,10 @@ if (bot) {
   });
 
   bot.api.setMyCommands([
+    { command: "admin", description: "🛡️ Admin Panel (Manage Friends & Access)" },
+    { command: "friends", description: "👥 View Authorized Friends List" },
+    { command: "myid", description: "🆔 Check My Telegram ID & Access Status" },
+    { command: "menu", description: "📚 Open syllabus navigation & papers" },
     { command: "start", description: "Start practice & view Health Meter" },
     { command: "mock", description: "⏱️ 12-Minute Real-Time Exam Simulator" },
     { command: "analytics", description: "📊 Aspirant Analytics & Mastery Radar" },
@@ -4478,13 +4610,9 @@ if (bot) {
     { command: "status", description: "System Health Meter & syllabus progress" },
     { command: "keys", description: "API credentials updater & live health" },
     { command: "subscribe", description: "Subscribe to 9 AM daily alerts" },
-    { command: "menu", description: "Open syllabus navigation" },
     { command: "auto", description: "Auto-generate Q&A and save to Notion" },
     { command: "url", description: "🌐 Ingest IAS article URL(s) directly to Notion" },
     { command: "model", description: "Get official 12-rule model answer" },
-    { command: "admin", description: "🛡️ Admin Panel (Manage Friends & Access)" },
-    { command: "friends", description: "👥 View Authorized Friends List" },
-    { command: "myid", description: "🆔 Check My Telegram ID & Access Status" },
   ]).catch(() => {});
 
   bot.start({

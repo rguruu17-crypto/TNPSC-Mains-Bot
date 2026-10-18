@@ -1493,11 +1493,13 @@ function registerBotHandlers(bot) {
     // 2. Exception routes that any user can trigger even if not whitelisted yet
     const text = (ctx.message?.text || "").trim();
     const isIdCmd = text.startsWith("/myid") || text.startsWith("/id") || text.startsWith("/whoami");
-    const isAdminCmd = text.startsWith("/admin") || text.startsWith("/panel") || text.startsWith("/adminpanel");
+    const isAdminCmd = text.startsWith("/admin") || text.startsWith("/panel") || text.startsWith("/adminpanel") || text === "🛡️ Admin Panel" || text === "Admin Panel";
+    const isAdminCallback = ctx.callbackQuery?.data?.startsWith("admin:") || ctx.callbackQuery?.data === "action:admin_panel";
     const isUserCallback = ctx.callbackQuery?.data?.startsWith("user:") || ctx.callbackQuery?.data === "admin:claim_ownership";
 
-    // Allow claim ownership if no admin exists yet
-    if (!hasAnyAdmin() && (isAdminCmd || ctx.callbackQuery?.data === "admin:claim_ownership")) {
+    // Admin routes & buttons: always pass through to admin handlers
+    // (Handlers independently enforce isAdmin(id) checks or prompt claim ownership setup)
+    if (isAdminCmd || isAdminCallback) {
       return next();
     }
 
@@ -1592,6 +1594,202 @@ bot.command(["menu", "syllabus"], async (ctx) => {
     reply_markup: getPapersInlineKeyboard(),
   });
 });
+
+  // ─────────────────────────────────────────────────────────────
+  // 🛡️ ADMIN PANEL & FRIEND ACCESS CONTROL COMMANDS
+  // ─────────────────────────────────────────────────────────────
+
+  // /admin, /panel, /adminpanel
+  bot.command(["admin", "panel", "adminpanel"], async (ctx) => {
+    userState.delete(ctx.chat.id);
+
+    // If no admin exists yet anywhere, allow this user to claim ownership
+    if (!hasAnyAdmin()) {
+      const claimText = [
+        `👑 <b>ADMIN OWNERSHIP SETUP</b>`,
+        `────────────────────────────────────`,
+        `No Administrator has been configured for this bot yet!`,
+        ``,
+        `👤 <b>Your Name:</b> ${ctx.from.first_name || "User"}`,
+        `🆔 <b>Your Telegram ID:</b> <code>${ctx.from.id}</code>`,
+        ``,
+        `👉 <i>Tap the button below to claim ownership and activate the Admin Panel:</i>`,
+      ].join("\n");
+
+      return ctx.reply(claimText, {
+        parse_mode: "HTML",
+        reply_markup: getClaimAdminKeyboard(),
+      });
+    }
+
+    // Verify admin permissions
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(
+        `⛔ <b>Admin Access Denied</b>\n\nThis Admin Panel is restricted to authorized bot administrators.\n\n🆔 <b>Your Telegram User ID:</b> <code>${ctx.from.id}</code>`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    const card = formatAdminPanelCard(ctx.from);
+    await ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: getAdminPanelKeyboard(ctx.from),
+    });
+  });
+
+  // /addfriend <id> [note] or /allow <id>
+  bot.command(["addfriend", "allow", "add_friend"], async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
+    }
+
+    const text = (ctx.message.text || "").trim();
+    const parts = text.split(/\s+/).slice(1);
+
+    if (parts.length === 0) {
+      userState.set(ctx.chat.id, { state: "WAITING_FOR_FRIEND_INPUT" });
+      return ctx.reply(
+        [
+          `➕ <b>ADD AUTHORIZED FRIEND</b>`,
+          `────────────────────────────────────`,
+          `Please send your friend's <b>Telegram User ID</b> (e.g. <code>123456789</code>), or forward any message from them to this chat!`,
+          ``,
+          `<i>Tip: You can also use:</i>`,
+          `<code>/addfriend 123456789 Friend Name</code>`,
+          ``,
+          `<i>Tap Cancel below to abort:</i>`,
+        ].join("\n"),
+        {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard().text("❌ Cancel", "admin:main"),
+        }
+      );
+    }
+
+    const idMatch = parts[0].match(/\b\d{5,15}\b/);
+    if (!idMatch) {
+      return ctx.reply("⚠️ <b>Invalid Telegram ID.</b> Please provide a numeric ID, e.g.: <code>/addfriend 123456789</code>", {
+        parse_mode: "HTML",
+      });
+    }
+
+    const friendId = idMatch[0];
+    const note = parts.slice(1).join(" ") || "Authorized Study Friend";
+
+    const res = addAllowedFriend({
+      id: friendId,
+      addedBy: ctx.from.first_name || `Admin (${ctx.from.id})`,
+      note,
+    });
+
+    if (res.success) {
+      const f = res.friend;
+      // Try to notify the friend
+      try {
+        await ctx.api.sendMessage(
+          f.id,
+          `🎉 <b>ACCESS GRANTED!</b>\n\nHello <b>${f.fullName}</b>! The admin has granted you access to <b>TNPSC Group-1 Mains Specialist Bot</b>.\n\nTap /start to begin!`,
+          { parse_mode: "HTML" }
+        );
+      } catch (_) {}
+
+      return ctx.reply(
+        `✅ <b>Friend Access Granted!</b>\n\n👤 <b>${f.fullName}</b> ${f.username ? `(${f.username})` : ""}\n🆔 <code>${f.id}</code>\n📝 <i>${f.note}</i>\n\nYour friend now has full access.`,
+        {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("👥 View Friends List", "admin:list_friends:1")
+            .text("➕ Add Another", "admin:add_friend_prompt")
+            .row()
+            .text("🛡️ Admin Panel", "admin:main"),
+        }
+      );
+    } else {
+      return ctx.reply(`⚠️ Could not add friend: ${res.error}`);
+    }
+  });
+
+  // /removefriend <id> or /revoke <id>
+  bot.command(["removefriend", "revoke", "remove_friend"], async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
+    }
+
+    const text = (ctx.message.text || "").trim();
+    const parts = text.split(/\s+/).slice(1);
+
+    if (parts.length === 0) {
+      const all = getAllAllowedFriends();
+      const card = formatFriendsListCard(1, 5);
+      const kb = getFriendsListKeyboard(1, Math.ceil(all.length / 5) || 1, all.slice(0, 5));
+      return ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
+    }
+
+    const idMatch = parts[0].match(/\b\d{5,15}\b/);
+    if (!idMatch) {
+      return ctx.reply("⚠️ Invalid Telegram ID. Please provide a numeric ID, e.g.: <code>/removefriend 123456789</code>", {
+        parse_mode: "HTML",
+      });
+    }
+
+    const res = removeAllowedFriend(idMatch[0]);
+    if (res.success) {
+      return ctx.reply(`🗑️ <b>Access Revoked:</b> Removed <b>${res.removed.fullName}</b> (ID: <code>${idMatch[0]}</code>) from authorized friends list.`, {
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard()
+          .text("👥 View Friends List", "admin:list_friends:1")
+          .text("🛡️ Admin Panel", "admin:main"),
+      });
+    } else {
+      return ctx.reply(`⚠️ ${res.error}`);
+    }
+  });
+
+  // /friends, /allowed, /whitelist
+  bot.command(["friends", "allowed", "whitelist"], async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
+    }
+    const all = getAllAllowedFriends();
+    const totalPages = Math.ceil(all.length / 5) || 1;
+    const card = formatFriendsListCard(1, 5);
+    const kb = getFriendsListKeyboard(1, totalPages, all.slice(0, 5));
+    await ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
+  });
+
+  // /requests, /pending
+  bot.command(["requests", "pending"], async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
+    }
+    const reqs = getAllPendingRequests();
+    const card = formatPendingRequestsCard();
+    const kb = getPendingRequestsKeyboard(reqs);
+    await ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
+  });
+
+  // /myid, /id, /whoami (available to all users)
+  bot.command(["myid", "id", "whoami"], async (ctx) => {
+    const info = getUserAccessInfo(ctx.from.id);
+    const fullName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" ") || "User";
+    const text = [
+      `🆔 <b>TELEGRAM USER IDENTITY</b>`,
+      `────────────────────────────────────`,
+      `👤 <b>Name:</b> <b>${fullName}</b>`,
+      ctx.from.username ? `🔖 <b>Username:</b> @${ctx.from.username}` : `🔖 <b>Username:</b> (None)`,
+      `🆔 <b>Telegram User ID:</b> <code>${ctx.from.id}</code>`,
+      `👑 <b>Role:</b> <b>${info.role}</b>`,
+      `🔒 <b>Access Status:</b> ${info.isAllowed ? "🟢 <b>Granted (Full Access)</b>" : "🔴 <b>Restricted (Pending Approval)</b>"}`,
+      `🌐 <b>Bot Mode:</b> <i>${info.restrictionEnabled ? "Private Whitelist Mode" : "Public Mode"}</i>`,
+      ``,
+      `<i>Tip: Share your ID <code>${ctx.from.id}</code> with the bot admin to get access!</i>`,
+    ].join("\n");
+
+    await ctx.reply(text, {
+      parse_mode: "HTML",
+      reply_markup: info.isAllowed ? getPapersInlineKeyboard() : getAccessDeniedKeyboard(ctx.from),
+    });
+  });
 
 bot.command("current", (ctx) => {
   const s = sessions.get(ctx.chat.id);
@@ -2512,8 +2710,8 @@ bot.callbackQuery("budget:sectors", async (ctx) => {
 // ─────────────────────────────────────────────────────────────
 
 // Text message handler
-bot.on("message:text", async (ctx) => {
-  if (ctx.message.text.startsWith("/")) return;
+bot.on("message:text", async (ctx, next) => {
+  if (ctx.message.text.startsWith("/")) return await next();
 
   const trimmedText = ctx.message.text.trim();
 
@@ -4012,202 +4210,6 @@ bot.callbackQuery("action:cancel_key_update", async (ctx) => {
     reply_markup: getPapersInlineKeyboard(),
   });
 });
-
-  // ─────────────────────────────────────────────────────────────
-  // 🛡️ ADMIN PANEL & FRIEND ACCESS CONTROL COMMANDS
-  // ─────────────────────────────────────────────────────────────
-
-  // /admin, /panel, /adminpanel
-  bot.command(["admin", "panel", "adminpanel"], async (ctx) => {
-    userState.delete(ctx.chat.id);
-
-    // If no admin exists yet anywhere, allow this user to claim ownership
-    if (!hasAnyAdmin()) {
-      const claimText = [
-        `👑 <b>ADMIN OWNERSHIP SETUP</b>`,
-        `────────────────────────────────────`,
-        `No Administrator has been configured for this bot yet!`,
-        ``,
-        `👤 <b>Your Name:</b> ${ctx.from.first_name || "User"}`,
-        `🆔 <b>Your Telegram ID:</b> <code>${ctx.from.id}</code>`,
-        ``,
-        `👉 <i>Tap the button below to claim ownership and activate the Admin Panel:</i>`,
-      ].join("\n");
-
-      return ctx.reply(claimText, {
-        parse_mode: "HTML",
-        reply_markup: getClaimAdminKeyboard(),
-      });
-    }
-
-    // Verify admin permissions
-    if (!isAdmin(ctx.from.id)) {
-      return ctx.reply(
-        `⛔ <b>Admin Access Denied</b>\n\nThis Admin Panel is restricted to authorized bot administrators.\n\n🆔 <b>Your Telegram User ID:</b> <code>${ctx.from.id}</code>`,
-        { parse_mode: "HTML" }
-      );
-    }
-
-    const card = formatAdminPanelCard(ctx.from);
-    await ctx.reply(card, {
-      parse_mode: "HTML",
-      reply_markup: getAdminPanelKeyboard(ctx.from),
-    });
-  });
-
-  // /addfriend <id> [note] or /allow <id>
-  bot.command(["addfriend", "allow", "add_friend"], async (ctx) => {
-    if (!isAdmin(ctx.from.id)) {
-      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
-    }
-
-    const text = (ctx.message.text || "").trim();
-    const parts = text.split(/\s+/).slice(1);
-
-    if (parts.length === 0) {
-      userState.set(ctx.chat.id, { state: "WAITING_FOR_FRIEND_INPUT" });
-      return ctx.reply(
-        [
-          `➕ <b>ADD AUTHORIZED FRIEND</b>`,
-          `────────────────────────────────────`,
-          `Please send your friend's <b>Telegram User ID</b> (e.g. <code>123456789</code>), or forward any message from them to this chat!`,
-          ``,
-          `<i>Tip: You can also use:</i>`,
-          `<code>/addfriend 123456789 Friend Name</code>`,
-          ``,
-          `<i>Tap Cancel below to abort:</i>`,
-        ].join("\n"),
-        {
-          parse_mode: "HTML",
-          reply_markup: new InlineKeyboard().text("❌ Cancel", "admin:main"),
-        }
-      );
-    }
-
-    const idMatch = parts[0].match(/\b\d{5,15}\b/);
-    if (!idMatch) {
-      return ctx.reply("⚠️ <b>Invalid Telegram ID.</b> Please provide a numeric ID, e.g.: <code>/addfriend 123456789</code>", {
-        parse_mode: "HTML",
-      });
-    }
-
-    const friendId = idMatch[0];
-    const note = parts.slice(1).join(" ") || "Authorized Study Friend";
-
-    const res = addAllowedFriend({
-      id: friendId,
-      addedBy: ctx.from.first_name || `Admin (${ctx.from.id})`,
-      note,
-    });
-
-    if (res.success) {
-      const f = res.friend;
-      // Try to notify the friend
-      try {
-        await ctx.api.sendMessage(
-          f.id,
-          `🎉 <b>ACCESS GRANTED!</b>\n\nHello <b>${f.fullName}</b>! The admin has granted you access to <b>TNPSC Group-1 Mains Specialist Bot</b>.\n\nTap /start to begin!`,
-          { parse_mode: "HTML" }
-        );
-      } catch (_) {}
-
-      return ctx.reply(
-        `✅ <b>Friend Access Granted!</b>\n\n👤 <b>${f.fullName}</b> ${f.username ? `(${f.username})` : ""}\n🆔 <code>${f.id}</code>\n📝 <i>${f.note}</i>\n\nYour friend now has full access.`,
-        {
-          parse_mode: "HTML",
-          reply_markup: new InlineKeyboard()
-            .text("👥 View Friends List", "admin:list_friends:1")
-            .text("➕ Add Another", "admin:add_friend_prompt")
-            .row()
-            .text("🛡️ Admin Panel", "admin:main"),
-        }
-      );
-    } else {
-      return ctx.reply(`⚠️ Could not add friend: ${res.error}`);
-    }
-  });
-
-  // /removefriend <id> or /revoke <id>
-  bot.command(["removefriend", "revoke", "remove_friend"], async (ctx) => {
-    if (!isAdmin(ctx.from.id)) {
-      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
-    }
-
-    const text = (ctx.message.text || "").trim();
-    const parts = text.split(/\s+/).slice(1);
-
-    if (parts.length === 0) {
-      const all = getAllAllowedFriends();
-      const card = formatFriendsListCard(1, 5);
-      const kb = getFriendsListKeyboard(1, Math.ceil(all.length / 5) || 1, all.slice(0, 5));
-      return ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
-    }
-
-    const idMatch = parts[0].match(/\b\d{5,15}\b/);
-    if (!idMatch) {
-      return ctx.reply("⚠️ Invalid Telegram ID. Please provide a numeric ID, e.g.: <code>/removefriend 123456789</code>", {
-        parse_mode: "HTML",
-      });
-    }
-
-    const res = removeAllowedFriend(idMatch[0]);
-    if (res.success) {
-      return ctx.reply(`🗑️ <b>Access Revoked:</b> Removed <b>${res.removed.fullName}</b> (ID: <code>${idMatch[0]}</code>) from authorized friends list.`, {
-        parse_mode: "HTML",
-        reply_markup: new InlineKeyboard()
-          .text("👥 View Friends List", "admin:list_friends:1")
-          .text("🛡️ Admin Panel", "admin:main"),
-      });
-    } else {
-      return ctx.reply(`⚠️ ${res.error}`);
-    }
-  });
-
-  // /friends, /allowed, /whitelist
-  bot.command(["friends", "allowed", "whitelist"], async (ctx) => {
-    if (!isAdmin(ctx.from.id)) {
-      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
-    }
-    const all = getAllAllowedFriends();
-    const totalPages = Math.ceil(all.length / 5) || 1;
-    const card = formatFriendsListCard(1, 5);
-    const kb = getFriendsListKeyboard(1, totalPages, all.slice(0, 5));
-    await ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
-  });
-
-  // /requests, /pending
-  bot.command(["requests", "pending"], async (ctx) => {
-    if (!isAdmin(ctx.from.id)) {
-      return ctx.reply(`⛔ <b>Admin Access Denied.</b>`, { parse_mode: "HTML" });
-    }
-    const reqs = getAllPendingRequests();
-    const card = formatPendingRequestsCard();
-    const kb = getPendingRequestsKeyboard(reqs);
-    await ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
-  });
-
-  // /myid, /id, /whoami (available to all users)
-  bot.command(["myid", "id", "whoami"], async (ctx) => {
-    const info = getUserAccessInfo(ctx.from.id);
-    const fullName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" ") || "User";
-    const text = [
-      `🆔 <b>TELEGRAM USER IDENTITY</b>`,
-      `────────────────────────────────────`,
-      `👤 <b>Name:</b> <b>${fullName}</b>`,
-      ctx.from.username ? `🔖 <b>Username:</b> @${ctx.from.username}` : `🔖 <b>Username:</b> (None)`,
-      `🆔 <b>Telegram User ID:</b> <code>${ctx.from.id}</code>`,
-      `👑 <b>Role:</b> <b>${info.role}</b>`,
-      `🔒 <b>Access Status:</b> ${info.isAllowed ? "🟢 <b>Granted (Full Access)</b>" : "🔴 <b>Restricted (Pending Approval)</b>"}`,
-      `🌐 <b>Bot Mode:</b> <i>${info.restrictionEnabled ? "Private Whitelist Mode" : "Public Mode"}</i>`,
-      ``,
-      `<i>Tip: Share your ID <code>${ctx.from.id}</code> with the bot admin to get access!</i>`,
-    ].join("\n");
-
-    await ctx.reply(text, {
-      parse_mode: "HTML",
-      reply_markup: info.isAllowed ? getPapersInlineKeyboard() : getAccessDeniedKeyboard(ctx.from),
-    });
-  });
 
   // ─────────────────────────────────────────────────────────────
   // 🛡️ ADMIN PANEL & ACCESS CALLBACK QUERIES

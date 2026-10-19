@@ -106,6 +106,60 @@ const {
   formatAccessDeniedCard,
 } = require("./access_manager");
 
+const { scanQCABPresentation, formatMarginScanCard } = require("./qcab_scanner");
+const {
+  MOCK_PAPERS,
+  startMockHallSession,
+  getActiveSession: getActiveMockHallSession,
+  checkMilestone: checkMockHallMilestone,
+  finishMockHallSession,
+  formatMockHallEntryCard,
+  formatMockHallStatusCard,
+  formatMockHallCompletionCard,
+} = require("./mock_hall_manager");
+const { generateQuestionsFromNews, formatNewsToMainsCard } = require("./news_to_mains");
+const { levelUpAnswer, formatLevelUpCard } = require("./answer_level_up");
+const {
+  recordSubmissionScore,
+  getLeaderboard,
+  getUserProfile: getLeaderboardProfile,
+  formatLeaderboardCard,
+  formatUserProfileCard,
+} = require("./leaderboard_manager");
+const {
+  setPrinterEndpoint,
+  getPrinterEndpoint,
+  printQCABBooklet,
+  formatPrinterDispatchCard,
+} = require("./printer_dispatcher");
+const {
+  reactToMessage,
+  reactForEvaluation,
+  awardBadge,
+  getUserBadges,
+  formatBadgesShowcaseCard,
+} = require("./badge_manager");
+const {
+  isStudyPoliceActive,
+  toggleStudyPolice,
+  detectSpam,
+  recordWarning: recordStudyPoliceWarning,
+  auditGroupMessage,
+  formatPoliceStatusCard,
+} = require("./study_police");
+const {
+  getChallengeForRoll,
+  formatDartChallengeCard,
+} = require("./gamified_picker");
+const {
+  extractHashtags,
+  generateSyllabusHashtags,
+  indexMessage: indexHashtagMessage,
+  getTagItems,
+  formatTagsListCard,
+  formatTagResultsCard,
+} = require("./hashtag_categorizer");
+
 // Initialize process-level crash prevention guard
 setupProcessGuard();
 
@@ -353,6 +407,22 @@ function getPapersInlineKeyboard() {
   kb.text("🛡️ ADMIN PANEL (Manage Friends & Access)", "action:admin_panel")
     .row();
 
+  kb.text("🎯 Dart Topic Picker", "action:dart_picker")
+    .text("🏛️ Sunday 3-Hr Mock", "action:mock_hall_menu")
+    .row();
+
+  kb.text("🏆 Leaderboard", "action:leaderboard")
+    .text("🎖️ Badges & Honors", "action:view_badges")
+    .row();
+
+  kb.text("🚀 AI Answer Level-Up", "action:level_up_prompt")
+    .text("📰 News to Mains", "action:news_to_mains")
+    .row();
+
+  kb.text("📐 Margin Scanner", "action:scanmargin_prompt")
+    .text("🖨️ Wi-Fi Printer", "action:printer_settings")
+    .row();
+
   kb.text("📜 General Studies I (Paper II)", "paper:GS1")
     .row()
     .text("⚖️ General Studies II (Paper III)", "paper:GS2")
@@ -376,6 +446,10 @@ function getPapersInlineKeyboard() {
     .text("🎯 TN Stats Bank", "action:tn_stats")
     .row();
 
+  kb.text("👮 Study Police", "action:police_status")
+    .text("🏷️ Hashtags Archive", "action:hashtag_archive")
+    .row();
+
   kb.text("⚡ Auto-Generate for All 9 Units (GS I, II & III)", "action:auto_all_papers")
     .row()
     .text("📊 Health Meter", "action:view_status")
@@ -392,16 +466,19 @@ function getPapersInlineKeyboard() {
 function getMainReplyKeyboard(userId) {
   return new Keyboard()
     .text("📚 Syllabus Menu")
+    .text("🎯 Dart Picker")
+    .row()
     .text("⏱️ 12-Min Mock")
+    .text("🏛️ 3-Hr Mock Hall")
     .row()
+    .text("🏆 Leaderboard")
+    .text("🎖️ Badges")
+    .row()
+    .text("🚀 Level-Up 13/15")
+    .text("📰 News to Mains")
+    .row()
+    .text("📐 Margin Scanner")
     .text("🛡️ Admin Panel")
-    .text("👥 Friends List")
-    .row()
-    .text("📊 Analytics")
-    .text("🌟 Capsules")
-    .row()
-    .text("🎯 TN Stats")
-    .text("🆔 My ID")
     .resized()
     .persistent();
 }
@@ -594,8 +671,14 @@ function getTopicPromptKeyboard(unitId) {
 // Actions after Question & Model Answer are displayed
 function getPostAnswerKeyboard(unitId = null) {
   const kb = new InlineKeyboard()
+    .text("🚀 Level-Up Answer (7➔13)", "action:levelup_active")
+    .text("📐 Margin Scanner", "action:scanmargin_prompt")
+    .row()
     .text("🗺️ Answer Diagram", "action:diagram")
     .text("📑 Printable QCAB PDF", "action:qcab_pdf")
+    .row()
+    .text("🖨️ Direct Print QCAB", "action:print_active_qcab")
+    .text("🏆 Leaderboard", "action:leaderboard")
     .row()
     .text("📊 Mastery Radar", "action:analytics")
     .text("🌟 Scheme Capsule", "action:capsule_menu")
@@ -616,6 +699,9 @@ function getQuestionActionKeyboard(unitId = null) {
     .row()
     .text("⏱️ 12-Min Mock Exam", "action:start_mock_exam")
     .text("📑 Printable QCAB PDF", "action:qcab_pdf")
+    .row()
+    .text("🖨️ Direct Wi-Fi Print", "action:print_active_qcab")
+    .text("🚀 Level-Up This Answer", "action:level_up_prompt")
     .row()
     .text("🌟 Scheme Capsule", "action:capsule_menu")
     .text("📓 Save to Notion", "action:save")
@@ -1474,12 +1560,196 @@ async function handleSaveToNotion(ctx) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// FEATURE HANDLER HELPERS
+// ─────────────────────────────────────────────────────────────
+
+async function handleGamifiedDartPicker(ctx) {
+  const diceMsg = await ctx.replyWithDice({ emoji: "🎯" });
+  const score = diceMsg.dice?.value || 6;
+  const challenge = getChallengeForRoll(score);
+
+  if (score === 6 && ctx.from?.id) {
+    awardBadge(ctx.from.id, "DART_BULLSEYE");
+  }
+
+  const anim = await createProgressAnimator(ctx, "DART SYLLABUS CHALLENGE");
+  let question = "";
+  try {
+    await anim.step(`🎯 [1/2] Bullseye Landed: ${score}/6...`, 40, `Selecting ${challenge.theme}...`);
+    const qRaw = await llm.generateQuestion(`Tamil Nadu & India: ${challenge.theme}`, challenge.marks);
+    question = qRaw.replace(/<[^>]+>/g, "").trim();
+    await anim.delete();
+  } catch (err) {
+    await anim.delete();
+    question = `Critically examine the significance of ${challenge.theme} with special reference to Tamil Nadu.`;
+  }
+
+  sessions.set(ctx.chat.id, {
+    question,
+    marks: challenge.marks,
+    words: wordsFor(challenge.marks),
+    topic: challenge.theme,
+    unitId: null,
+  });
+
+  const card = formatDartChallengeCard(score, challenge, question);
+  const kb = new InlineKeyboard()
+    .text("⏱️ Start 12-Min Challenge", "action:start_mock_exam")
+    .text("📑 Blank QCAB PDF", "action:qcab_pdf")
+    .row()
+    .text("🎯 Roll Again", "action:dart_picker")
+    .text("📚 Syllabus Menu", "action:pick_topic");
+
+  return ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
+}
+
+async function handleMockHallMenu(ctx) {
+  const active = getActiveMockHallSession(ctx.from?.id);
+  if (active && active.status === "IN_PROGRESS") {
+    return ctx.reply(formatMockHallStatusCard(active), {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏁 Submit Mock Booklet", "mockhall:submit")
+        .text("🔄 Refresh Status", "mockhall:status"),
+    });
+  }
+
+  const welcomeText = [
+    `🏛️ <b>SUNDAY 3-HOUR FULL MOCK EXAMINATION HALL</b>`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `Simulate the authentic 3-Hour (180 Minutes, 250 Marks) TNPSC Group-1 Mains Examination under strict exam hall conditions!`,
+    ``,
+    `📋 <b>Features:</b>`,
+    `• Progressive milestone proctoring (45m, 90m, 150m, 165m, 180m alerts)`,
+    `• Full 250-mark paper syllabus coverage`,
+    `• Endurance scoring & Marathoner Badges`,
+    `• Official QCAB booklet submission & presentation audit`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `👉 <i>Select a General Studies Paper to enter the 3-Hour Mock Hall:</i>`,
+  ].join("\n");
+
+  const kb = new InlineKeyboard()
+    .text("📜 Paper II (GS 1: History, Social, Aptitude)", "mockhall:start:GS1").row()
+    .text("⚖️ Paper III (GS 2: Polity, S&T, Tamil Society)", "mockhall:start:GS2").row()
+    .text("📈 Paper IV (GS 3: Geography, Environment, Economy)", "mockhall:start:GS3").row()
+    .text("📚 Back to Main Menu", "action:pick_topic");
+
+  return ctx.reply(welcomeText, { parse_mode: "HTML", reply_markup: kb });
+}
+
+async function handleNewsToMainsPrompt(ctx) {
+  userState.set(ctx.chat.id, { state: "WAITING_FOR_NEWS_INPUT" });
+  return ctx.reply(
+    [
+      `📰 <b>INSTANT NEWS-TO-MAINS QUESTION GENERATOR</b>`,
+      `────────────────────────────────────`,
+      `Send or paste any recent news headline, newspaper editorial, or current affairs snippet!`,
+      ``,
+      `<i>Example:</i>`,
+      `<code>Tamil Nadu government announces new Green Hydrogen and Semiconductor Subsidies Policy 2024</code>`,
+      ``,
+      `<i>The AI Question Paper Setter will immediately map it to the syllabus, frame 10M & 15M questions with directive words, and generate a topper value-addition blueprint!</i>`,
+    ].join("\n"),
+    {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard().text("❌ Cancel", "action:pick_topic"),
+    }
+  );
+}
+
+async function handleLevelUpPrompt(ctx) {
+  const s = sessions.get(ctx.chat.id);
+  if (s && s.answer && s.answer.length > 20) {
+    return runAnswerLevelUp(ctx, s.question, s.answer, s.marks || 15);
+  }
+
+  userState.set(ctx.chat.id, { state: "WAITING_FOR_LEVELUP_INPUT" });
+  return ctx.reply(
+    [
+      `🚀 <b>AI ANSWER LEVEL-UP ENGINE (7 ➔ 13 / 15 MARKS)</b>`,
+      `────────────────────────────────────`,
+      `Please paste your draft answer (or any average answer scoring 6–8 marks)!`,
+      ``,
+      `The Level-Up Engine will:`,
+      `1. Diagnose why it scored 7/15`,
+      `2. Inject Tamil Nadu statistics, flagship schemes, constitutional articles, and visual diagrams`,
+      `3. Deliver a transformed, state-topper 13/15 answer in full 12-rule format!`,
+    ].join("\n"),
+    {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard().text("❌ Cancel", "action:pick_topic"),
+    }
+  );
+}
+
+async function runAnswerLevelUp(ctx, question, answerText, marks = 15) {
+  const anim = await createProgressAnimator(ctx, "AI ANSWER LEVEL-UP ENGINE");
+  try {
+    await anim.step("🔍 [1/3] Diagnosing ~7/15 Shortcomings...", 25, "Scanning for missing TN data & schemes...");
+    await anim.step("⚡ [2/3] Injecting 4-Pillar Value Additions...", 60, "Adding NITI Aayog stats, Articles & Flowchart...");
+    const result = await levelUpAnswer(question, answerText, marks);
+    await anim.step("🏆 [3/3] Compiling Transformed 13/15 Model...", 90, "Applying 12-rule structure...");
+    await anim.delete();
+
+    const card = formatLevelUpCard(result, { question, marks });
+    return reply(ctx, card, new InlineKeyboard()
+      .text("📑 Blank QCAB PDF", "action:qcab_pdf")
+      .text("🏆 Leaderboard", "action:leaderboard")
+      .row()
+      .text("📚 Syllabus Menu", "action:pick_topic")
+    );
+  } catch (err) {
+    await anim.delete();
+    return ctx.reply(`⚠️ Level-Up Error: ${err.message}`);
+  }
+}
+
+async function handleMarginScanPrompt(ctx) {
+  userState.set(ctx.chat.id, { state: "WAITING_FOR_MARGIN_SCAN" });
+  return ctx.reply(
+    [
+      `📐 <b>QCAB SPACE & MARGIN SCANNER</b>`,
+      `────────────────────────────────────`,
+      `Upload your scanned QCAB Answer Sheet (PDF or Photo) now!`,
+      ``,
+      `The Presentation Auditor will audit:`,
+      `• Left & Right margin discipline (no text bleed)`,
+      `• Vertical space density & void voids (~1.5p or ~2.5p)`,
+      `• Underlined keywords, callout boxes & schematics`,
+      `• Baseline stability & handwriting legibility`,
+      ``,
+      `🎯 <i>Receive an official Presentation Marks Score (/10.0) & deduction warnings!</i>`,
+    ].join("\n"),
+    {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard().text("❌ Cancel", "action:pick_topic"),
+    }
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────
 // TELEGRAM BOT COMMAND & MESSAGE REGISTRATION
 // ─────────────────────────────────────────────────────────────
 function registerBotHandlers(bot) {
   // Global Middleware: Access Control & Live Activity Tracker
   bot.use(async (ctx, next) => {
+    // 0. Group Anti-Spam & Study Police check
+    try {
+      const handledSpam = await auditGroupMessage(ctx);
+      if (handledSpam) return;
+    } catch (_) {}
+
+    // Auto-index hashtags in text
+    if (ctx.message?.text && ctx.chat?.id) {
+      try {
+        indexHashtagMessage(ctx.chat.id, ctx.message.message_id, {
+          text: ctx.message.text,
+          author: [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") || "Aspirant",
+        });
+      } catch (_) {}
+    }
+
     // 1. Record user profile if available
     if (ctx.from) {
       try {
@@ -2816,6 +3086,47 @@ bot.on("message:text", async (ctx, next) => {
     });
   }
 
+  if (trimmedText === "🎯 Dart Picker" || trimmedText === "Dart Picker") {
+    userState.delete(ctx.chat.id);
+    return handleGamifiedDartPicker(ctx);
+  }
+
+  if (trimmedText === "🏛️ 3-Hr Mock Hall" || trimmedText === "3-Hr Mock Hall") {
+    userState.delete(ctx.chat.id);
+    return handleMockHallMenu(ctx);
+  }
+
+  if (trimmedText === "🏆 Leaderboard" || trimmedText === "Leaderboard") {
+    return ctx.reply(formatLeaderboardCard(10, ctx.from?.id), {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("👤 My Scorecard", "action:myrank")
+        .text("📚 Syllabus Menu", "action:pick_topic"),
+    });
+  }
+
+  if (trimmedText === "🎖️ Badges" || trimmedText === "Badges") {
+    const fullName = [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") || "Aspirant";
+    return ctx.reply(formatBadgesShowcaseCard(ctx.from?.id, fullName), {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏆 Leaderboard", "action:leaderboard")
+        .text("📚 Syllabus Menu", "action:pick_topic"),
+    });
+  }
+
+  if (trimmedText === "🚀 Level-Up 13/15" || trimmedText === "Level-Up 13/15") {
+    return handleLevelUpPrompt(ctx);
+  }
+
+  if (trimmedText === "📰 News to Mains" || trimmedText === "News to Mains") {
+    return handleNewsToMainsPrompt(ctx);
+  }
+
+  if (trimmedText === "📐 Margin Scanner" || trimmedText === "Margin Scanner") {
+    return handleMarginScanPrompt(ctx);
+  }
+
   // 1. If user is in "WAITING_FOR_TOPIC" state, prompt user to choose Question Type (PYQ vs Practice Question) & Marks (10M vs 15M)
   const st = userState.get(ctx.chat.id);
   if (st && st.state === "WAITING_FOR_TOPIC") {
@@ -3160,7 +3471,70 @@ bot.on("message:text", async (ctx, next) => {
       });
     }
   }
-  // 1E. If the message contains one or more URLs, automatically process as IAS / Editorial website content ingestion!
+
+  // 1F. Handle News-to-Mains text input
+  if (st && st.state === "WAITING_FOR_NEWS_INPUT") {
+    userState.delete(ctx.chat.id);
+    const newsText = ctx.message.text.trim();
+    const anim = await createProgressAnimator(ctx, "NEWS-TO-MAINS CONVERTER");
+    try {
+      await anim.step("🗞️ [1/2] Mapping News to TNPSC Syllabus...", 40, "Determining Paper & Unit...");
+      const data = await generateQuestionsFromNews(newsText);
+      await anim.step("✍️ [2/2] Framing 10M & 15M Directive Questions...", 85, "Crafting value blueprint & TN scheme linkages...");
+      await anim.delete();
+
+      sessions.set(ctx.chat.id, {
+        question: data.question_15m,
+        question10: data.question_10m,
+        marks: 15,
+        words: 250,
+        topic: `${data.paper_code} - ${data.unit_name}: ${data.directive_word}`,
+        unitId: data.unit_id || null,
+      });
+
+      const card = formatNewsToMainsCard(data, newsText);
+      const kb = new InlineKeyboard()
+        .text("✍️ Practice 15-Marker", "gen_topic:own:15")
+        .text("✍️ Practice 10-Marker", "gen_topic:own:10")
+        .row()
+        .text("🎯 12-Rule Model Answer", "action:model")
+        .text("📑 Blank QCAB PDF", "action:qcab_pdf")
+        .row()
+        .text("📚 Syllabus Menu", "action:pick_topic");
+
+      return ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
+    } catch (err) {
+      await anim.delete();
+      return ctx.reply(`⚠️ News conversion error: ${err.message}`);
+    }
+  }
+
+  // 1G. Handle Level-Up text input
+  if (st && st.state === "WAITING_FOR_LEVELUP_INPUT") {
+    userState.delete(ctx.chat.id);
+    const draftText = ctx.message.text.trim();
+    const s = sessions.get(ctx.chat.id);
+    const q = s?.question || "Evaluate the role of social welfare policies in Tamil Nadu with emphasis on inclusive growth.";
+    return runAnswerLevelUp(ctx, q, draftText, s?.marks || 15);
+  }
+
+  // 1H. Handle Printer IP configuration input
+  if (st && st.state === "WAITING_FOR_PRINTER_IP") {
+    userState.delete(ctx.chat.id);
+    const ipText = ctx.message.text.trim();
+    const cleanUrl = setPrinterEndpoint(ctx.from?.id, ipText);
+    return ctx.reply(
+      `✅ <b>Wi-Fi Printer Configured!</b>\n\n🌐 <b>Endpoint:</b> <code>${cleanUrl}</code>\n⚡ <b>Protocol:</b> IPP (RFC 8011)\n\nYou can now print QCAB sheets directly with <b>/print</b>!`,
+      {
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard()
+          .text("🖨️ Test Print Current QCAB", "action:print_active_qcab")
+          .text("📚 Main Menu", "action:pick_topic"),
+      }
+    );
+  }
+
+  // 1I. If the message contains one or more URLs, automatically process as IAS / Editorial website content ingestion!
   if (ctx.message.text.match(/https?:\/\/[^\s]+/i)) {
     return await handleIngestUrls(ctx, ctx.message.text);
   }
@@ -3232,6 +3606,41 @@ bot.on("message:photo", async (ctx) => {
     });
   }
 
+  const isMarginScan = userState.get(ctx.chat.id)?.state === "WAITING_FOR_MARGIN_SCAN";
+  if (isMarginScan) {
+    userState.delete(ctx.chat.id);
+    const anim = await createProgressAnimator(ctx, "QCAB SPACE & MARGIN SCANNER");
+    try {
+      await anim.step("📸 [1/2] Downloading sheet image...", 35);
+      const photos = ctx.message.photo;
+      const file = await ctx.api.getFile(photos[photos.length - 1].file_id);
+      const url = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+      const buf = Buffer.from(await (await fetch(url)).arrayBuffer());
+      const tmpPhoto = path.join(__dirname, "data", "generated_pdfs", `SCAN_${Date.now()}.jpg`);
+      fs.writeFileSync(tmpPhoto, buf);
+
+      await anim.step("📐 [2/2] Scanning Margins & Space Allocation...", 80, "Auditing text borders and density...");
+      const scan = await scanQCABPresentation(tmpPhoto, s.marks || 15);
+      await anim.delete();
+      try { fs.unlinkSync(tmpPhoto); } catch (_) {}
+
+      if (scan.total_presentation_score >= 8.5 && ctx.from?.id) {
+        awardBadge(ctx.from.id, "QCAB_PRO");
+      }
+
+      const card = formatMarginScanCard(scan, s.marks || 15);
+      return ctx.reply(card, {
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard()
+          .text("📑 Blank QCAB PDF", "action:qcab_pdf")
+          .text("📚 Syllabus Menu", "action:pick_topic"),
+      });
+    } catch (err) {
+      await anim.delete();
+      return ctx.reply(`⚠️ Margin scan error: ${err.message}`);
+    }
+  }
+
   const mockTiming = extractMockTiming(ctx.chat.id);
   const anim = await createProgressAnimator(ctx, "HANDWRITTEN OCR & EVALUATION");
   try {
@@ -3258,6 +3667,14 @@ bot.on("message:photo", async (ctx) => {
         elapsedSeconds: mockTiming ? mockTiming.elapsed : null,
         submissionType: "Handwritten Paper (Vision OCR)",
       });
+
+      // Leaderboard & Badges
+      recordSubmissionScore(ctx.from, { score: numericScore, marks: s.marks, isMock: Boolean(s.isMock) });
+      reactForEvaluation(ctx, numericScore, s.marks).catch(() => {});
+      if (numericScore >= 12) awardBadge(ctx.from?.id, "TOPPER_SCORE");
+      if (mockTiming && mockTiming.elapsed <= 720) awardBadge(ctx.from?.id, "SPEED_DEMON");
+      s.lastScore = numericScore;
+      s.lastEvaluatedAnswer = "(Handwritten photo answer)";
     } catch (e) {
       console.warn("Analytics recording warning:", e.message);
     }
@@ -3374,6 +3791,27 @@ bot.on("message:document", async (ctx) => {
     // Save to disk so evaluator can read it
     const tmpPath = path.join(__dirname, "data", "generated_pdfs", `UPLOAD_${Date.now()}.pdf`);
     fs.writeFileSync(tmpPath, buf);
+
+    // If user requested Space & Margin Scanner
+    if (userState.get(ctx.chat.id)?.state === "WAITING_FOR_MARGIN_SCAN") {
+      userState.delete(ctx.chat.id);
+      await anim.step("📐 Scanning Margins & Space Allocation...", 50, "Auditing text borders and density...");
+      const scan = await scanQCABPresentation(tmpPath, s.marks || 15);
+      await anim.delete();
+      try { fs.unlinkSync(tmpPath); } catch (_) {}
+
+      if (scan.total_presentation_score >= 8.5 && ctx.from?.id) {
+        awardBadge(ctx.from.id, "QCAB_PRO");
+      }
+
+      const card = formatMarginScanCard(scan, s.marks || 15);
+      return ctx.reply(card, {
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard()
+          .text("📑 Blank QCAB PDF", "action:qcab_pdf")
+          .text("📚 Syllabus Menu", "action:pick_topic"),
+      });
+    }
 
     // ── STEP 1B: Inspect Page Count & Auto-Detect Marks ─────────
     // TNPSC Group-1 Mains Space Standards:
@@ -3571,11 +4009,26 @@ bot.on("message:document", async (ctx) => {
       `📄 <i>PDF contains: Marked Cover Page + Your Answer Sheet + Model Answer</i>`,
     ].filter(Boolean).join("\n");
 
+    // Leaderboard & Badges
+    recordSubmissionScore(ctx.from, { score: total_marks, marks: s.marks, isMock: Boolean(s.isMock) });
+    reactForEvaluation(ctx, total_marks, s.marks).catch(() => {});
+    if (total_marks >= 12) awardBadge(ctx.from?.id, "TOPPER_SCORE");
+    if (mockTiming && mockTiming.elapsed <= 720) awardBadge(ctx.from?.id, "SPEED_DEMON");
+    s.lastScore = total_marks;
+    s.lastEvaluatedAnswer = "(Scanned Handwritten QCAB PDF Answer)";
+    s.lastPdfPath = mergedPath;
+
     const kb = new InlineKeyboard();
     if (notionPageUrl) {
       kb.url("📓 View in Notion", notionPageUrl).row();
     }
-    kb.text("📑 New QCAB Sheet", "action:qcab_pdf")
+    kb.text("🚀 Level-Up This Answer", "action:levelup_active")
+      .text("📐 Margin Scanner", "action:scanmargin_last")
+      .row()
+      .text("🖨️ Direct Wi-Fi Print", "action:print_active_qcab")
+      .text("🏆 Leaderboard", "action:leaderboard")
+      .row()
+      .text("📑 New QCAB Sheet", "action:qcab_pdf")
       .text("📊 My Analytics", "action:analytics")
       .row()
       .text("📚 Next Question", "action:pick_topic");
@@ -4572,6 +5025,541 @@ bot.callbackQuery("action:cancel_key_update", async (ctx) => {
       await ctx.answerCallbackQuery({ text: "⏳ Request is still awaiting Admin approval.", show_alert: true }).catch(() => {});
     }
   });
+
+  // ─────────────────────────────────────────────────────────────
+  // 🌟 10 NEW SUPERIOR EXAM FEATURES
+  // ─────────────────────────────────────────────────────────────
+
+  // FEATURE 1: QCAB SPACE & MARGIN SCANNER
+  bot.command(["scanmargin", "margin", "presentation"], async (ctx) => {
+    userState.delete(ctx.chat.id);
+    const replyMsg = ctx.message?.reply_to_message;
+    const doc = replyMsg?.document;
+
+    if (doc && (doc.mime_type === "application/pdf" || doc.file_name?.toLowerCase().endsWith(".pdf"))) {
+      const anim = await createProgressAnimator(ctx, "QCAB SPACE & MARGIN SCANNER");
+      try {
+        await anim.step("📥 [1/2] Downloading replied PDF...", 35);
+        const file = await ctx.api.getFile(doc.file_id);
+        const url = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+        const buf = Buffer.from(await (await fetch(url)).arrayBuffer());
+        const tmpPath = path.join(__dirname, "data", "generated_pdfs", `SCAN_${Date.now()}.pdf`);
+        fs.writeFileSync(tmpPath, buf);
+
+        await anim.step("📐 [2/2] Scanning Margins & Space Allocation...", 80, "Auditing text borders and density...");
+        const s = sessions.get(ctx.chat.id);
+        const scan = await scanQCABPresentation(tmpPath, s?.marks || 15);
+        await anim.delete();
+        try { fs.unlinkSync(tmpPath); } catch (_) {}
+
+        if (scan.total_presentation_score >= 8.5 && ctx.from?.id) {
+          awardBadge(ctx.from.id, "QCAB_PRO");
+        }
+
+        const card = formatMarginScanCard(scan, s?.marks || 15);
+        return ctx.reply(card, {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("📑 Blank QCAB PDF", "action:qcab_pdf")
+            .text("📚 Main Menu", "action:pick_topic"),
+        });
+      } catch (err) {
+        await anim.delete();
+        return ctx.reply(`⚠️ Margin scan error: ${err.message}`);
+      }
+    }
+
+    const s = sessions.get(ctx.chat.id);
+    if (s && s.lastPdfPath && fs.existsSync(s.lastPdfPath)) {
+      const anim = await createProgressAnimator(ctx, "QCAB SPACE & MARGIN SCANNER");
+      try {
+        await anim.step("📐 Auditing Presentation on Evaluated Sheet...", 60);
+        const scan = await scanQCABPresentation(s.lastPdfPath, s.marks || 15);
+        await anim.delete();
+        if (scan.total_presentation_score >= 8.5 && ctx.from?.id) {
+          awardBadge(ctx.from.id, "QCAB_PRO");
+        }
+        const card = formatMarginScanCard(scan, s.marks || 15);
+        return ctx.reply(card, {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("📑 Blank QCAB PDF", "action:qcab_pdf")
+            .text("📚 Main Menu", "action:pick_topic"),
+        });
+      } catch (err) {
+        await anim.delete();
+        return ctx.reply(`⚠️ Margin scan error: ${err.message}`);
+      }
+    }
+
+    return handleMarginScanPrompt(ctx);
+  });
+
+  bot.callbackQuery("action:scanmargin_prompt", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    return handleMarginScanPrompt(ctx);
+  });
+
+  bot.callbackQuery("action:scanmargin_last", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const s = sessions.get(ctx.chat.id);
+    if (s && s.lastPdfPath && fs.existsSync(s.lastPdfPath)) {
+      const anim = await createProgressAnimator(ctx, "QCAB SPACE & MARGIN SCANNER");
+      try {
+        await anim.step("📐 Auditing Space & Margins...", 60);
+        const scan = await scanQCABPresentation(s.lastPdfPath, s.marks || 15);
+        await anim.delete();
+        if (scan.total_presentation_score >= 8.5 && ctx.from?.id) {
+          awardBadge(ctx.from.id, "QCAB_PRO");
+        }
+        const card = formatMarginScanCard(scan, s.marks || 15);
+        return ctx.reply(card, {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("📑 Blank QCAB PDF", "action:qcab_pdf")
+            .text("📚 Main Menu", "action:pick_topic"),
+        });
+      } catch (err) {
+        await anim.delete();
+        return ctx.reply(`⚠️ Margin scan error: ${err.message}`);
+      }
+    }
+    return handleMarginScanPrompt(ctx);
+  });
+
+  // FEATURE 2: SUNDAY 3-HOUR FULL MOCK HALL
+  bot.command(["mockhall", "sundaymock", "3hrmock"], async (ctx) => {
+    userState.delete(ctx.chat.id);
+    return handleMockHallMenu(ctx);
+  });
+
+  bot.command("mockstatus", async (ctx) => {
+    const active = getActiveMockHallSession(ctx.from?.id);
+    if (!active || active.status !== "IN_PROGRESS") {
+      return ctx.reply("⚠️ No active 3-Hour Mock Hall session! Enter the hall via <b>/mockhall</b>.", {
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard().text("🏛️ Enter 3-Hour Mock Hall", "action:mock_hall_menu"),
+      });
+    }
+    return ctx.reply(formatMockHallStatusCard(active), {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏁 Submit Mock Booklet", "mockhall:submit")
+        .text("🔄 Refresh Status", "mockhall:status"),
+    });
+  });
+
+  bot.command(["mocksubmit", "finishmock"], async (ctx) => {
+    const finished = finishMockHallSession(ctx.from?.id);
+    if (!finished) {
+      return ctx.reply("⚠️ No active 3-Hour Mock session to submit! Start one with <b>/mockhall</b>.", {
+        parse_mode: "HTML",
+      });
+    }
+
+    if (ctx.from?.id) {
+      awardBadge(ctx.from.id, "MARATHONER_3HR");
+      recordSubmissionScore(ctx.from, { score: 200, marks: 250, isMock: true });
+    }
+
+    const card = formatMockHallCompletionCard(finished);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏆 View Leaderboard", "action:leaderboard")
+        .text("🎖️ View Badges", "action:view_badges")
+        .row()
+        .text("📚 Syllabus Menu", "action:pick_topic"),
+    });
+  });
+
+  bot.callbackQuery("action:mock_hall_menu", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    return handleMockHallMenu(ctx);
+  });
+
+  bot.callbackQuery(/^mockhall:start:(GS[123])$/, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const paperKey = ctx.match[1];
+    const session = startMockHallSession(ctx.from?.id, { paperKey });
+    const entryCard = formatMockHallEntryCard(session);
+
+    await ctx.reply(entryCard, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("⏱️ Check Proctor Status", "mockhall:status")
+        .text("🏁 Submit Mock Early", "mockhall:submit")
+        .row()
+        .text("📑 Download Blank Master QCAB", "action:qcab_pdf"),
+    });
+  });
+
+  bot.callbackQuery("mockhall:status", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const active = getActiveMockHallSession(ctx.from?.id);
+    if (!active || active.status !== "IN_PROGRESS") {
+      return ctx.reply("⚠️ No active 3-Hour Mock session! Tap below to start:", {
+        reply_markup: new InlineKeyboard().text("🏛️ Enter 3-Hour Mock Hall", "action:mock_hall_menu"),
+      });
+    }
+    return ctx.reply(formatMockHallStatusCard(active), {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏁 Submit Mock Booklet", "mockhall:submit")
+        .text("🔄 Refresh Status", "mockhall:status"),
+    });
+  });
+
+  bot.callbackQuery("mockhall:submit", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const finished = finishMockHallSession(ctx.from?.id);
+    if (!finished) {
+      return ctx.reply("⚠️ No active 3-Hour Mock session to submit!");
+    }
+    if (ctx.from?.id) {
+      awardBadge(ctx.from.id, "MARATHONER_3HR");
+      recordSubmissionScore(ctx.from, { score: 200, marks: 250, isMock: true });
+    }
+    const card = formatMockHallCompletionCard(finished);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏆 View Leaderboard", "action:leaderboard")
+        .text("🎖️ View Badges", "action:view_badges")
+        .row()
+        .text("📚 Syllabus Menu", "action:pick_topic"),
+    });
+  });
+
+  // FEATURE 3: INSTANT NEWS-TO-MAINS QUESTION GENERATOR
+  bot.command(["newstomains", "news2mains", "headline"], async (ctx) => {
+    const raw = (ctx.match || "").trim();
+    if (raw.length > 10) {
+      const anim = await createProgressAnimator(ctx, "NEWS-TO-MAINS CONVERTER");
+      try {
+        await anim.step("🗞️ [1/2] Mapping News to TNPSC Syllabus...", 40);
+        const data = await generateQuestionsFromNews(raw);
+        await anim.step("✍️ [2/2] Framing 10M & 15M Directive Questions...", 85);
+        await anim.delete();
+
+        sessions.set(ctx.chat.id, {
+          question: data.question_15m,
+          question10: data.question_10m,
+          marks: 15,
+          words: 250,
+          topic: `${data.paper_code} - ${data.unit_name}: ${data.directive_word}`,
+          unitId: data.unit_id || null,
+        });
+
+        const card = formatNewsToMainsCard(data, raw);
+        const kb = new InlineKeyboard()
+          .text("✍️ Practice 15-Marker", "gen_topic:own:15")
+          .text("✍️ Practice 10-Marker", "gen_topic:own:10")
+          .row()
+          .text("🎯 12-Rule Model Answer", "action:model")
+          .text("📑 Blank QCAB PDF", "action:qcab_pdf")
+          .row()
+          .text("📚 Main Menu", "action:pick_topic");
+
+        return ctx.reply(card, { parse_mode: "HTML", reply_markup: kb });
+      } catch (err) {
+        await anim.delete();
+        return ctx.reply(`⚠️ News conversion error: ${err.message}`);
+      }
+    }
+    return handleNewsToMainsPrompt(ctx);
+  });
+
+  bot.callbackQuery("action:news_to_mains", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    return handleNewsToMainsPrompt(ctx);
+  });
+
+  // FEATURE 4: AI ANSWER LEVEL-UP (7/15 ➔ 13/15)
+  bot.command(["levelup", "level_up"], async (ctx) => {
+    const raw = (ctx.match || "").trim();
+    const s = sessions.get(ctx.chat.id);
+    if (raw.length > 30) {
+      const q = s?.question || "Evaluate the role of social welfare policies in Tamil Nadu with emphasis on inclusive growth.";
+      return runAnswerLevelUp(ctx, q, raw, s?.marks || 15);
+    }
+    if (s && s.answer && s.answer.length > 30) {
+      return runAnswerLevelUp(ctx, s.question, s.answer, s.marks || 15);
+    }
+    return handleLevelUpPrompt(ctx);
+  });
+
+  bot.callbackQuery("action:level_up_prompt", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    return handleLevelUpPrompt(ctx);
+  });
+
+  bot.callbackQuery("action:levelup_active", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const s = sessions.get(ctx.chat.id);
+    if (s && s.answer && s.answer.length > 20) {
+      return runAnswerLevelUp(ctx, s.question, s.answer, s.marks || 15);
+    }
+    return handleLevelUpPrompt(ctx);
+  });
+
+  // FEATURE 5: LIVE STUDY GROUP LEADERBOARD
+  bot.command(["leaderboard", "top", "rankings"], async (ctx) => {
+    const card = formatLeaderboardCard(10, ctx.from?.id);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("👤 My Scorecard", "action:myrank")
+        .text("📚 Syllabus Menu", "action:pick_topic"),
+    });
+  });
+
+  bot.command(["myrank", "profile", "scorecard"], async (ctx) => {
+    const card = formatUserProfileCard(ctx.from?.id);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏆 Global Leaderboard", "action:leaderboard")
+        .text("📚 Syllabus Menu", "action:pick_topic"),
+    });
+  });
+
+  bot.callbackQuery("action:leaderboard", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const card = formatLeaderboardCard(10, ctx.from?.id);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("👤 My Scorecard", "action:myrank")
+        .text("📚 Syllabus Menu", "action:pick_topic"),
+    });
+  });
+
+  bot.callbackQuery("action:myrank", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const card = formatUserProfileCard(ctx.from?.id);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏆 Global Leaderboard", "action:leaderboard")
+        .text("📚 Syllabus Menu", "action:pick_topic"),
+    });
+  });
+
+  // FEATURE 6: DIRECT-TO-PRINTER WI-FI AUTO-DISPATCH (IPP)
+  bot.command(["print", "dispatchprint"], async (ctx) => {
+    const s = sessions.get(ctx.chat.id);
+    let targetPdf = s?.lastPdfPath;
+
+    if (!targetPdf || !fs.existsSync(targetPdf)) {
+      const anim = await createProgressAnimator(ctx, "PRINTER DISPATCH ENGINE");
+      try {
+        await anim.step("📑 Generating printable QCAB Booklet...", 50);
+        targetPdf = await generateQCABPdf({
+          question: s?.question || "Examine the salient features of Tamil Nadu's industrial and economic policies.",
+          marks: s?.marks || 15,
+          topic: s?.topic || "General Studies",
+          paperCode: s?.unitId ? getPaperCodeForUnit(s.unitId) : "Paper II",
+        });
+        await anim.delete();
+      } catch (err) {
+        await anim.delete();
+        return ctx.reply(`⚠️ PDF generation error: ${err.message}`);
+      }
+    }
+
+    const res = await printQCABBooklet(ctx.from?.id, targetPdf, "TNPSC_QCAB_Booklet");
+    const card = formatPrinterDispatchCard(res, "TNPSC QCAB Booklet");
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("⚙️ Configure Printer IP", "action:printer_settings")
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  });
+
+  bot.command("setprinter", async (ctx) => {
+    const raw = (ctx.match || "").trim();
+    if (raw.length > 5) {
+      const cleanUrl = setPrinterEndpoint(ctx.from?.id, raw);
+      return ctx.reply(
+        `✅ <b>Wi-Fi Printer Linked!</b>\n\n🌐 <b>Endpoint:</b> <code>${cleanUrl}</code>\n⚡ <b>Protocol:</b> IPP (RFC 8011)\n\nDispatch booklets directly using <b>/print</b>!`,
+        {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard()
+            .text("🖨️ Test Print Current QCAB", "action:print_active_qcab")
+            .text("📚 Main Menu", "action:pick_topic"),
+        }
+      );
+    }
+    userState.set(ctx.chat.id, { state: "WAITING_FOR_PRINTER_IP" });
+    return ctx.reply(
+      "🖨️ <b>Configure Wi-Fi Printer IP:</b>\n\nPlease enter your network printer's IP address (e.g. <code>192.168.1.50</code>):",
+      { parse_mode: "HTML", reply_markup: new InlineKeyboard().text("❌ Cancel", "action:pick_topic") }
+    );
+  });
+
+  bot.callbackQuery("action:print_active_qcab", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const s = sessions.get(ctx.chat.id);
+    let targetPdf = s?.lastPdfPath;
+    if (!targetPdf || !fs.existsSync(targetPdf)) {
+      targetPdf = await generateQCABPdf({
+        question: s?.question || "Explain the socio-economic welfare schemes of Tamil Nadu.",
+        marks: s?.marks || 15,
+        topic: s?.topic || "General Studies",
+        paperCode: "Paper II",
+      });
+    }
+    const res = await printQCABBooklet(ctx.from?.id, targetPdf, "TNPSC_QCAB_Booklet");
+    const card = formatPrinterDispatchCard(res, "TNPSC QCAB Booklet");
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("⚙️ Configure Printer IP", "action:printer_settings")
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  });
+
+  bot.callbackQuery("action:printer_settings", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    userState.set(ctx.chat.id, { state: "WAITING_FOR_PRINTER_IP" });
+    const current = getPrinterEndpoint(ctx.from?.id) || "None configured";
+    return ctx.reply(
+      `🖨️ <b>WI-FI PRINTER SETTINGS</b>\n────────────────────────────────────\n🌐 <b>Current IPP Target:</b> <code>${current}</code>\n\nSend your printer's IP address (e.g. <code>192.168.1.50</code>) to link it:`,
+      { parse_mode: "HTML", reply_markup: new InlineKeyboard().text("❌ Cancel", "action:pick_topic") }
+    );
+  });
+
+  // FEATURE 7: BOT EMOJI REACTIONS & FEEDBACK BADGES
+  bot.command(["badges", "trophies", "achievements"], async (ctx) => {
+    const fullName = [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") || "Aspirant";
+    const card = formatBadgesShowcaseCard(ctx.from?.id, fullName);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏆 View Leaderboard", "action:leaderboard")
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  });
+
+  bot.callbackQuery("action:view_badges", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const fullName = [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") || "Aspirant";
+    const card = formatBadgesShowcaseCard(ctx.from?.id, fullName);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏆 View Leaderboard", "action:leaderboard")
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  });
+
+  // FEATURE 8: GROUP ANTI-SPAM & STUDY POLICE
+  bot.command(["studypolice", "police", "focusmode"], async (ctx) => {
+    const raw = (ctx.match || "").trim().toLowerCase();
+    if (raw === "on" || raw === "enable") {
+      toggleStudyPolice(ctx.chat.id, true);
+    } else if (raw === "off" || raw === "disable") {
+      toggleStudyPolice(ctx.chat.id, false);
+    }
+    const card = formatPoliceStatusCard(ctx.chat.id);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🔄 Toggle Police On/Off", "action:toggle_police")
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  });
+
+  bot.callbackQuery("action:police_status", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const card = formatPoliceStatusCard(ctx.chat.id);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🔄 Toggle Police On/Off", "action:toggle_police")
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  });
+
+  bot.callbackQuery("action:toggle_police", async (ctx) => {
+    const active = toggleStudyPolice(ctx.chat.id);
+    await ctx.answerCallbackQuery({
+      text: active ? "👮 Study Police ACTIVE! Hall protected." : "⚪ Study Police STANDBY.",
+      show_alert: true,
+    }).catch(() => {});
+    const card = formatPoliceStatusCard(ctx.chat.id);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🔄 Toggle Police On/Off", "action:toggle_police")
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  });
+
+  // FEATURE 9: THE GAMIFIED ANIMATED DICE/DART TOPIC PICKER
+  bot.command(["dart", "dice", "spin"], async (ctx) => {
+    userState.delete(ctx.chat.id);
+    return handleGamifiedDartPicker(ctx);
+  });
+
+  bot.callbackQuery("action:dart_picker", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    return handleGamifiedDartPicker(ctx);
+  });
+
+  // FEATURE 10: TELEGRAM HASHTAG AUTO-CATEGORIZER
+  bot.command(["tags", "hashtags"], async (ctx) => {
+    const card = formatTagsListCard();
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏷️ View #Polity", "tag:polity")
+        .text("🏷️ View #Economy", "tag:economy")
+        .row()
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  });
+
+  bot.command("tag", async (ctx) => {
+    const tagArg = (ctx.match || "").trim();
+    if (!tagArg) {
+      return ctx.reply(formatTagsListCard(), { parse_mode: "HTML" });
+    }
+    const card = formatTagResultsCard(tagArg);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏷️ View All Tags", "action:hashtag_archive")
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  });
+
+  bot.callbackQuery("action:hashtag_archive", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const card = formatTagsListCard();
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏷️ View #Polity", "tag:polity")
+        .text("🏷️ View #Economy", "tag:economy")
+        .row()
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  });
+
+  bot.callbackQuery(/^tag:(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const tagName = ctx.match[1];
+    const card = formatTagResultsCard(tagName);
+    return ctx.reply(card, {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("🏷️ View All Tags", "action:hashtag_archive")
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  });
 } // end registerBotHandlers
 
 // ─────────────────────────────────────────────────────────────
@@ -4591,11 +5579,22 @@ if (bot) {
   });
 
   bot.api.setMyCommands([
-    { command: "admin", description: "🛡️ Admin Panel (Manage Friends & Access)" },
-    { command: "friends", description: "👥 View Authorized Friends List" },
-    { command: "myid", description: "🆔 Check My Telegram ID & Access Status" },
+    { command: "start", description: "🎯 Start practice & view Health Meter" },
     { command: "menu", description: "📚 Open syllabus navigation & papers" },
-    { command: "start", description: "Start practice & view Health Meter" },
+    { command: "dart", description: "🎯 Gamified Animated Dart Topic Picker" },
+    { command: "mockhall", description: "🏛️ Sunday 3-Hour Full Mock Hall (250M)" },
+    { command: "mockstatus", description: "⏱️ Check 3-Hour Mock Hall Proctor Status" },
+    { command: "mocksubmit", description: "🏁 Submit 3-Hour Full Mock Answer Booklet" },
+    { command: "scanmargin", description: "📐 QCAB Space & Margin Presentation Scanner" },
+    { command: "levelup", description: "🚀 AI Answer Level-Up (Transform 7/15 ➔ 13/15)" },
+    { command: "newstomains", description: "📰 Instant News-to-Mains Question Generator" },
+    { command: "leaderboard", description: "🏆 Live Study Group Leaderboard" },
+    { command: "myrank", description: "👤 Aspirant Scorecard, Tier & Rank" },
+    { command: "badges", description: "🎖️ Aspirant Achievement Badges & Honors" },
+    { command: "print", description: "🖨️ Direct-to-Printer Wi-Fi Auto-Dispatch (IPP)" },
+    { command: "setprinter", description: "⚙️ Configure Home Wi-Fi Printer IP" },
+    { command: "studypolice", description: "👮 Group Anti-Spam & Study Police" },
+    { command: "tags", description: "🏷️ Telegram Syllabus Hashtag Archive" },
     { command: "mock", description: "⏱️ 12-Minute Real-Time Exam Simulator" },
     { command: "analytics", description: "📊 Aspirant Analytics & Mastery Radar" },
     { command: "capsule", description: "🌟 TN Scheme & Policy Capsule Vault" },
@@ -4610,11 +5609,8 @@ if (bot) {
     { command: "tomorrow", description: "View tomorrow's scheduled topic (9 AM)" },
     { command: "daily", description: "Run/view today's 9 AM PYQ questions" },
     { command: "status", description: "System Health Meter & syllabus progress" },
-    { command: "keys", description: "API credentials updater & live health" },
-    { command: "subscribe", description: "Subscribe to 9 AM daily alerts" },
-    { command: "auto", description: "Auto-generate Q&A and save to Notion" },
-    { command: "url", description: "🌐 Ingest IAS article URL(s) directly to Notion" },
-    { command: "model", description: "Get official 12-rule model answer" },
+    { command: "admin", description: "🛡️ Admin Panel (Manage Friends & Access)" },
+    { command: "myid", description: "🆔 Check My Telegram ID & Access Status" },
   ]).catch(() => {});
 
   bot.start({

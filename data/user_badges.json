@@ -1,0 +1,14 @@
+{
+  "12345": {
+    "userId": "12345",
+    "badges": [
+      {
+        "id": "TOPPER_SCORE",
+        "title": "Mains Topper",
+        "icon": "🏆",
+        "description": "Scored 12+ marks out of 15 on an authentic Mains question",
+        "unlockedAt": "2026-10-19T03:57:23.657Z"
+      }
+    ]
+  }
+}

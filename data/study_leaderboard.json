@@ -1,0 +1,20 @@
+{
+  "12345": {
+    "userId": "12345",
+    "name": "Test Aspirant",
+    "username": null,
+    "totalSubmissions": 1,
+    "totalScore": 13.5,
+    "totalMaxMarks": 15,
+    "points": 42,
+    "mockExamsCount": 0,
+    "streakDays": 1,
+    "lastActiveDate": "2026-10-19",
+    "history": [],
+    "tier": {
+      "title": "🔰 Cadre Trainee",
+      "badge": "🔰",
+      "level": 1
+    }
+  }
+}

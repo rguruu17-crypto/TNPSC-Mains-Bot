@@ -1,0 +1,18 @@
+{
+  "12345": {
+    "userId": "12345",
+    "paperKey": "GS1",
+    "paperTitle": "General Studies I (History, Social Issues, Mental Ability)",
+    "paperCode": "Paper II",
+    "totalMarks": 250,
+    "durationMinutes": 180,
+    "startedAt": 1792382243628,
+    "targetEndAt": 1792393043628,
+    "status": "COMPLETED",
+    "checkpointsAlerted": [],
+    "completedAt": 1792382243636,
+    "totalMinutesTaken": 0,
+    "enduranceGrade": "A+ (EXAM READY • FLAWLESS ENDURANCE)",
+    "enduranceScore": 100
+  }
+}

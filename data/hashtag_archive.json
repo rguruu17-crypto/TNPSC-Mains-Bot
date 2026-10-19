@@ -1,0 +1,39 @@
+{
+  "tags": {
+    "#polity": {
+      "tag": "#polity",
+      "count": 1,
+      "mapping": {
+        "unit": "Unit I (Indian Polity & Constitution)",
+        "paper": "Paper III"
+      },
+      "items": [
+        {
+          "chatId": "group123",
+          "messageId": "msg1",
+          "preview": "Notes on #Polity and #Constitution",
+          "author": "Aspirant",
+          "indexedAt": "2026-10-19T03:57:23.678Z"
+        }
+      ]
+    },
+    "#constitution": {
+      "tag": "#constitution",
+      "count": 1,
+      "mapping": {
+        "unit": "Unit I (Indian Polity & Constitution)",
+        "paper": "Paper III"
+      },
+      "items": [
+        {
+          "chatId": "group123",
+          "messageId": "msg1",
+          "preview": "Notes on #Polity and #Constitution",
+          "author": "Aspirant",
+          "indexedAt": "2026-10-19T03:57:23.678Z"
+        }
+      ]
+    }
+  },
+  "history": []
+}

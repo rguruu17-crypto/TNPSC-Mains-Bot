@@ -39,6 +39,47 @@ A production-ready Telegram bot for **TNPSC Group-1 / Group-2 Mains** answer-wri
    - **Instant Telegram Push Notifications**: When a friend requests access, you receive an immediate alert with `[Approve ✅]` and `[Reject ❌]` buttons right in Telegram.
    - **Instant Friend Welcome**: Approved friends automatically receive a congratulatory Telegram DM welcoming them to the bot!
 
+
+6. **📐 QCAB Space & Margin Scanner (Presentation Marks Auditor)**:
+   - Dedicated Gemini Vision inspection of handwritten sheets for left/right margin adherence, answer overflow, vertical density, underline discipline, visual boxing, and handwriting legibility.
+   - Evaluates a Presentation Score out of 10 with penalty calculations and actionable topper tips.
+
+7. **🏛️ Sunday 3-Hour Full Mock Hall (250 Marks Exam Endurance)**:
+   - Simulates actual TNPSC 3-Hour exam conditions (180 minutes, 250 Marks).
+   - Milestone proctoring alerts at 45m (Paper II warmup), 90m (Halfway check), 150m (Penultimate push), 165m (15-min warning), and 180m (Final whistle).
+   - Computes endurance completion score and awards the `3-Hour Marathoner` badge.
+
+8. **📰 Instant News-to-Mains Question Generator**:
+   - Paste any editorial or current affairs snippet to immediately transform it into authentic TNPSC 10-Mark and 15-Mark questions.
+   - Automatically maps Paper and Unit, tags directive words (e.g. *Critically Examine*, *Elucidate*), and provides an answer blueprint with Tamil Nadu case studies.
+
+9. **🚀 AI Answer Level-Up (Transform 7/15 into 13/15)**:
+   - Evaluator engine that transforms average 7-mark answers into 13/15 topper-grade responses.
+   - Applies the 4-Pillar Value Injection: Tamil Nadu specific statistics, pioneer schemes, constitutional/legal anchors, and structural ASCII diagrams.
+
+10. **🏆 Live Study Group Leaderboard & Aspirant Rank System**:
+    - Tracks peer submissions, average evaluation scores, and study streaks.
+    - Tier designations from *Cadre Trainee* up to *Rank 1 Contender*.
+
+11. **🖨️ Direct-to-Printer Wi-Fi Auto-Dispatch (IPP)**:
+    - Pure Node.js RFC 8010/8011 binary IPP client over HTTP/631 that dispatches formatted QCAB booklets directly to network Wi-Fi printers.
+
+12. **🎖️ Bot Emoji Reactions & Feedback Badges**:
+    - Automatic contextual Telegram emoji reactions (🔥, 🎯, 👏, ⚡, ✍️) based on performance.
+    - Digital badges unlockable through consistency: *Mains Topper*, *7-Day Streak*, *Speed Demon*, *Diagram Maestro*, *Constitution Eagle*, *TN Specialist*, and more.
+
+13. **🛡️ Group Anti-Spam & Study Police**:
+    - Auto-moderator for Telegram study groups: detects promotional links, spam, channel invitations, and off-topic flood.
+    - Features 3-strike warning citations and a Focus Mode toggle for silent study hours.
+
+14. **🎯 Gamified Animated Dice/Dart Topic Picker**:
+    - Uses native Telegram 🎯 dart animation to challenge aspirants with random high-yield syllabus topics.
+    - Launches a 12-minute timed sprint for rapid answer writing.
+
+15. **🏷️ Telegram Hashtag Auto-Categorizer & Search**:
+    - Automatically parses, validates, and indexes syllabus tags (e.g., `#Paper2`, `#Unit1`, `#Constitution`, `#GovtSchemes`).
+    - Creates searchable tags and automatically tags generated model answers.
+
 ---
 
 ## 📱 Bot Commands
@@ -50,6 +91,21 @@ A production-ready Telegram bot for **TNPSC Group-1 / Group-2 Mains** answer-wri
 | `/removefriend <id>`| 🗑️ **Remove Friend**: Revoke access for a user |
 | `/friends` | 👥 **Friends List**: View all authorized friends with quick revoke buttons |
 | `/myid` | 🆔 **My Identity**: View your Telegram User ID, role, and current access status |
+| `/scanmargin` | 📐 **QCAB Margin Scanner**: Audit presentation, margins, overflow & formatting |
+| `/mockhall` | 🏛️ **3-Hr Mock Hall**: Launch or view 180-min (250 Marks) full exam simulation |
+| `/mockstatus` | ⏱️ **Mock Status**: Check time remaining and milestone alerts |
+| `/mocksubmit` | 🏁 **Submit Mock**: Conclude mock exam and generate endurance report |
+| `/newstomains` | 📰 **News to Mains**: Transform editorial/news snippet into 10M & 15M questions |
+| `/levelup` | 🚀 **Level-Up Answer**: Upgrade 7/15 draft into 13/15 topper-grade answer |
+| `/leaderboard` | 🏆 **Leaderboard**: View top study group aspirants and rankings |
+| `/myrank` | 👤 **My Scorecard**: Check your rank, average score, streak & badges |
+| `/print` | 🖨️ **Direct Print**: Dispatch QCAB booklet to Wi-Fi printer via IPP |
+| `/setprinter <ip>` | ⚙️ **Configure Printer**: Set IPP printer IP/hostname and queue |
+| `/badges` | 🎖️ **My Badges**: View earned achievement badges |
+| `/studypolice` | 👮 **Study Police**: View group anti-spam rules and focus mode |
+| `/dart` | 🎯 **Dart Picker**: Throw animated dart for random 12-min topic challenge |
+| `/tags` | 🏷️ **Hashtag Index**: Browse indexed syllabus topics and archives |
+| `/tag <#tag>` | 🔍 **Search by Tag**: View questions and model answers under a tag |
 | `/start` | Select Paper, Unit, and start answer writing |
 | `/pyqs` | **PYQ Archive (2012–Present)**: Browse by year, generate on-demand, and download master PDF booklets |
 | `/daily` | Trigger/view today's 9:00 AM PYQ session (2 questions + model answers) |

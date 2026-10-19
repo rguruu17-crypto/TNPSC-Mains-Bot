@@ -1,0 +1,9 @@
+{
+  "groups": {
+    "group123": {
+      "enabled": true,
+      "strictHours": true
+    }
+  },
+  "warnings": {}
+}

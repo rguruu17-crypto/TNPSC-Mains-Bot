@@ -159,6 +159,10 @@ const {
   formatTagsListCard,
   formatTagResultsCard,
 } = require("./hashtag_categorizer");
+const {
+  locateTextbookSources,
+  formatSourceLocatorCard,
+} = require("./source_locator");
 
 // Initialize process-level crash prevention guard
 setupProcessGuard();
@@ -450,6 +454,10 @@ function getPapersInlineKeyboard() {
     .text("🏷️ Hashtags Archive", "action:hashtag_archive")
     .row();
 
+  kb.text("📚 School Book Sources", "action:source_prompt")
+    .text("🌟 Scheme Capsules", "action:capsule_menu")
+    .row();
+
   kb.text("⚡ Auto-Generate for All 9 Units (GS I, II & III)", "action:auto_all_papers")
     .row()
     .text("📊 Health Meter", "action:view_status")
@@ -478,6 +486,8 @@ function getMainReplyKeyboard(userId) {
     .text("📰 News to Mains")
     .row()
     .text("📐 Margin Scanner")
+    .text("📚 Book Sources")
+    .row()
     .text("🛡️ Admin Panel")
     .resized()
     .persistent();
@@ -674,13 +684,15 @@ function getPostAnswerKeyboard(unitId = null) {
     .text("🚀 Level-Up Answer (7➔13)", "action:levelup_active")
     .text("📐 Margin Scanner", "action:scanmargin_prompt")
     .row()
+    .text("📚 School Book Sources", "action:source_current_q")
     .text("🗺️ Answer Diagram", "action:diagram")
+    .row()
     .text("📑 Printable QCAB PDF", "action:qcab_pdf")
-    .row()
     .text("🖨️ Direct Print QCAB", "action:print_active_qcab")
-    .text("🏆 Leaderboard", "action:leaderboard")
     .row()
+    .text("🏆 Leaderboard", "action:leaderboard")
     .text("📊 Mastery Radar", "action:analytics")
+    .row()
     .text("🌟 Scheme Capsule", "action:capsule_menu")
     .row();
   if (unitId) {
@@ -695,15 +707,17 @@ function getPostAnswerKeyboard(unitId = null) {
 function getQuestionActionKeyboard(unitId = null) {
   const kb = new InlineKeyboard()
     .text("🎯 12-Rule Model Answer", "action:model")
+    .text("📚 School Book Sources", "action:source_current_q")
+    .row()
     .text("🗺️ Answer Diagram", "action:diagram")
-    .row()
     .text("⏱️ 12-Min Mock Exam", "action:start_mock_exam")
+    .row()
     .text("📑 Printable QCAB PDF", "action:qcab_pdf")
-    .row()
     .text("🖨️ Direct Wi-Fi Print", "action:print_active_qcab")
-    .text("🚀 Level-Up This Answer", "action:level_up_prompt")
     .row()
+    .text("🚀 Level-Up This Answer", "action:level_up_prompt")
     .text("🌟 Scheme Capsule", "action:capsule_menu")
+    .row()
     .text("📓 Save to Notion", "action:save")
     .row();
   if (unitId) {
@@ -1725,6 +1739,51 @@ async function handleMarginScanPrompt(ctx) {
       reply_markup: new InlineKeyboard().text("❌ Cancel", "action:pick_topic"),
     }
   );
+}
+
+async function handleSourceLocatorPrompt(ctx) {
+  userState.set(ctx.chat.id, { state: "WAITING_FOR_SOURCE_QUERY" });
+  return ctx.reply(
+    [
+      `📚 <b>NCERT & TN SAMACHEER KALVI SOURCE LOCATOR</b>`,
+      `────────────────────────────────────`,
+      `Enter any TNPSC topic, keyword, or complete question to locate authentic school textbook sources!`,
+      ``,
+      `<i>Examples:</i>`,
+      `• <code>Justice Party and Communal G.O.</code>`,
+      `• <code>Governor discretionary powers Article 163</code>`,
+      `• <code>Tamil Nadu Industrial Clusters and MSME</code>`,
+      `• <code>Panchayati Raj Kudavolai System and 73rd Amendment</code>`,
+      ``,
+      `<i>The Academic Engine will find the exact Standard (Std 6-12), Subject, Chapter number, English & Tamil titles, page ranges, and high-yield box alerts!</i>`,
+    ].join("\n"),
+    {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard().text("❌ Cancel", "action:pick_topic"),
+    }
+  );
+}
+
+async function runSourceLookup(ctx, query) {
+  const anim = await createProgressAnimator(ctx, "TEXTBOOK SOURCE LOCATOR");
+  try {
+    await anim.step("🏫 [1/2] Searching TN Samacheer Kalvi (Std 6-12)...", 45, "Mapping TNSCERT curriculum & Tamil chapters...");
+    const data = await locateTextbookSources(query);
+    await anim.step("📖 [2/2] Correlating NCERT & Infobox Alerts...", 85, "Cross-referencing Class 11 & 12 foundations...");
+    await anim.delete();
+
+    const card = formatSourceLocatorCard(data);
+    return ctx.reply(card, {
+      parse_mode: "Markdown",
+      disable_web_page_preview: true,
+      reply_markup: new InlineKeyboard()
+        .text("🔍 Search Another Topic", "action:source_prompt")
+        .text("📚 Main Menu", "action:pick_topic"),
+    });
+  } catch (err) {
+    await anim.delete();
+    return ctx.reply(`⚠️ Source locator error: ${err.message}`);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -3127,6 +3186,10 @@ bot.on("message:text", async (ctx, next) => {
     return handleMarginScanPrompt(ctx);
   }
 
+  if (trimmedText === "📚 Book Sources" || trimmedText === "Book Sources" || trimmedText === "📚 School Book Sources") {
+    return handleSourceLocatorPrompt(ctx);
+  }
+
   // 1. If user is in "WAITING_FOR_TOPIC" state, prompt user to choose Question Type (PYQ vs Practice Question) & Marks (10M vs 15M)
   const st = userState.get(ctx.chat.id);
   if (st && st.state === "WAITING_FOR_TOPIC") {
@@ -3534,7 +3597,14 @@ bot.on("message:text", async (ctx, next) => {
     );
   }
 
-  // 1I. If the message contains one or more URLs, automatically process as IAS / Editorial website content ingestion!
+  // 1I. Handle Source Locator query input
+  if (st && st.state === "WAITING_FOR_SOURCE_QUERY") {
+    userState.delete(ctx.chat.id);
+    const query = ctx.message.text.trim();
+    return runSourceLookup(ctx, query);
+  }
+
+  // 1J. If the message contains one or more URLs, automatically process as IAS / Editorial website content ingestion!
   if (ctx.message.text.match(/https?:\/\/[^\s]+/i)) {
     return await handleIngestUrls(ctx, ctx.message.text);
   }
@@ -5560,6 +5630,30 @@ bot.callbackQuery("action:cancel_key_update", async (ctx) => {
         .text("📚 Main Menu", "action:pick_topic"),
     });
   });
+  // FEATURE: NCERT & TN SAMACHEER KALVI SOURCE LOCATOR
+  bot.command(["source", "sources", "books", "ncert", "samacheer"], async (ctx) => {
+    const arg = (ctx.match || "").trim();
+    if (arg) {
+      return runSourceLookup(ctx, arg);
+    }
+    const s = sessions.get(ctx.chat.id);
+    if (s && s.question) {
+      return runSourceLookup(ctx, s.question);
+    }
+    return handleSourceLocatorPrompt(ctx);
+  });
+
+  bot.callbackQuery("action:source_prompt", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    return handleSourceLocatorPrompt(ctx);
+  });
+
+  bot.callbackQuery("action:source_current_q", async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const s = sessions.get(ctx.chat.id);
+    const query = s?.question || s?.topic || "Indian Polity and Tamil Nadu Administration";
+    return runSourceLookup(ctx, query);
+  });
 } // end registerBotHandlers
 
 // ─────────────────────────────────────────────────────────────
@@ -5581,6 +5675,7 @@ if (bot) {
   bot.api.setMyCommands([
     { command: "start", description: "🎯 Start practice & view Health Meter" },
     { command: "menu", description: "📚 Open syllabus navigation & papers" },
+    { command: "source", description: "📚 NCERT & TN Samacheer Kalvi Source Locator" },
     { command: "dart", description: "🎯 Gamified Animated Dart Topic Picker" },
     { command: "mockhall", description: "🏛️ Sunday 3-Hour Full Mock Hall (250M)" },
     { command: "mockstatus", description: "⏱️ Check 3-Hour Mock Hall Proctor Status" },

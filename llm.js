@@ -198,7 +198,7 @@ const generatePdfModelAnswer = (question, marks, words) =>
     `Question: ${question}\nMarks: ${marks}\nWord limit: ~${words} words\nWrite the complete structured model answer in plain text.`
   );
 
-module.exports = { generateQuestion, generatePYQ, modelAnswer, generatePdfModelAnswer, generateDiagram, linkEditorial, evaluate, updateGeminiKey };
+module.exports = { generateQuestion, generatePYQ, modelAnswer, generatePdfModelAnswer, generateDiagram, linkEditorial, evaluate, updateGeminiKey, ask };
 
 
 if (require.main === module) {

@@ -80,6 +80,10 @@ A production-ready Telegram bot for **TNPSC Group-1 / Group-2 Mains** answer-wri
     - Automatically parses, validates, and indexes syllabus tags (e.g., `#Paper2`, `#Unit1`, `#Constitution`, `#GovtSchemes`).
     - Creates searchable tags and automatically tags generated model answers.
 
+16. **📚 NCERT & TN Samacheer Kalvi Source Locator (`/source`)**:
+    - Instantly connects any TNPSC Mains syllabus concept, question, or keyword back to official school textbooks.
+    - Provides exact Class/Standard (Std 6-12), Subject, Chapter number, English & Tamil titles, page ranges, and high-yield *"Do You Know?"* infobox alerts across TNSCERT and NCERT.
+
 ---
 
 ## 📱 Bot Commands
@@ -91,6 +95,7 @@ A production-ready Telegram bot for **TNPSC Group-1 / Group-2 Mains** answer-wri
 | `/removefriend <id>`| 🗑️ **Remove Friend**: Revoke access for a user |
 | `/friends` | 👥 **Friends List**: View all authorized friends with quick revoke buttons |
 | `/myid` | 🆔 **My Identity**: View your Telegram User ID, role, and current access status |
+| `/source <topic>` | 📚 **Source Locator**: Find exact TN Samacheer Kalvi (Std 6-12) & NCERT chapters |
 | `/scanmargin` | 📐 **QCAB Margin Scanner**: Audit presentation, margins, overflow & formatting |
 | `/mockhall` | 🏛️ **3-Hr Mock Hall**: Launch or view 180-min (250 Marks) full exam simulation |
 | `/mockstatus` | ⏱️ **Mock Status**: Check time remaining and milestone alerts |
